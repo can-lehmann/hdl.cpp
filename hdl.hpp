@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <sstream>
+#include <fstream>
 
 #include "hdl_bitstring.hpp"
 
@@ -396,6 +397,73 @@ namespace hdl {
         stream << "\n";
         
         stream << "endmodule\n";
+      }
+    };
+  }
+  
+  namespace graphviz {
+    class Printer {
+    private:
+      Module& _module;
+      
+      size_t print(std::ostream& stream,
+                   const Value* value,
+                   std::unordered_map<const Value*, size_t>& ids) const {
+        if (ids.find(value) != ids.end()) {
+          return ids.at(value);
+        }
+        
+        size_t id = ids.size();
+        ids[value] = id;
+        
+        if (const Op* op = dynamic_cast<const Op*>(value)) {
+          stream << "  n" << id << " [label=" << Op::KIND_NAMES[(size_t)op->kind] << "];\n";
+        } else if (const Constant* op = dynamic_cast<const Constant*>(value)) {
+          stream << "  n" << id << " [shape=none, label=\"" << op->value << "\"];\n";
+        } else if (const Input* op = dynamic_cast<const Input*>(value)) {
+          stream << "  n" << id << " [shape=box, label=\"" << op->name << "\"];\n";
+        } else {
+          stream << "  n" << id << ";\n";
+        }
+        
+        if (const Op* op = dynamic_cast<const Op*>(value)) {
+          for (const Value* arg : op->args) {
+            size_t arg_id = print(stream, arg, ids);
+            stream << "  n" << arg_id << " -> n" << id << ";\n";
+          }
+        }
+        
+        return id;
+      }
+    public:
+      Printer(Module& module): _module(module) {}
+      
+      void print(std::ostream& stream) const {
+        stream << "digraph {\n";
+        
+        std::unordered_map<const Value*, size_t> ids;
+        
+        for (const Reg* reg : _module.regs()) {
+          ids[reg] = ids.size();
+          stream << "  n"  << ids.at(reg) << " [shape=box, label=reg" << ids.at(reg) << "];\n";
+        }
+        
+        for (const Reg* reg : _module.regs()) {
+          size_t initial_id = print(stream, reg->initial, ids);
+          size_t clock_id = print(stream, reg->clock, ids);
+          size_t next_id = print(stream, reg->next, ids);
+          stream << "  n" << initial_id << " -> n" << ids.at(reg) << " [label=initial];\n";
+          stream << "  n" << clock_id << " -> n" << ids.at(reg) << " [label=clock];\n";
+          stream << "  n" << next_id << " -> n" << ids.at(reg) << " [label=next];\n";
+        }
+        
+        stream << "}\n";
+      }
+      
+      void save(const char* path) const {
+        std::ofstream file;
+        file.open(path);
+        print(file);
       }
     };
   }

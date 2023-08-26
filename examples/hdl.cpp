@@ -26,6 +26,9 @@ int main() {
   hdl::verilog::Printer printer(module);
   printer.print(std::cout);
   
+  hdl::graphviz::Printer gv_printer(module);
+  gv_printer.save("graph.gv");
+  
   {
     hdl::sim::Simulation simulation(module);
     bool clock = false;

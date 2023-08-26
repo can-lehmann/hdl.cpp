@@ -1,3 +1,5 @@
 examples/hdl_bitstring
 examples/hdl
 examples/test.v
+examples/graph.gv
+examples/graph.svg
