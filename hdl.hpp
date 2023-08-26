@@ -72,6 +72,8 @@ namespace hdl {
       "Select"
     };
     
+    static constexpr const size_t MAX_ARG_COUNT = 3;
+    
     const Kind kind;
     const std::vector<Value*> args;
     
@@ -131,6 +133,31 @@ namespace hdl {
     
     bool hashcons_equal(const Op& other) const {
       return kind == other.kind && args == other.args;
+    }
+    
+    BitString eval(const BitString** values) const {
+      #define arg(index) (*(values[(index)]))
+      #define binop(op) result = arg(0) op arg(1);
+      
+      BitString result;
+      switch (kind) {
+        case Op::Kind::And: binop(&); break;
+        case Op::Kind::Or: binop(|); break;
+        case Op::Kind::Xor: binop(^); break;
+        case Op::Kind::Not: result = ~arg(0); break;
+        case Op::Kind::Add: binop(+); break;
+        case Op::Kind::Sub: binop(-); break;
+        case Op::Kind::Mul: throw_error(Error, "Not implemented"); break;
+        case Op::Kind::Eq: result = BitString::from_bool(arg(0) == arg(1)); break;
+        case Op::Kind::LtU: result = BitString::from_bool(arg(0).lt_u(arg(1))); break;
+        case Op::Kind::LtS: throw_error(Error, "Not implemented"); break;
+        case Op::Kind::Select: result = (arg(0))[0] ? arg(1) : arg(2); break;
+      }
+      
+      #undef binop
+      #undef arg
+      
+      return result;
     }
   };
 }
@@ -231,8 +258,68 @@ namespace hdl {
       return reg;
     }
     
-    Op* op(Op::Kind kind, const std::vector<Value*>& args) {
-      return _ops[Op(kind, args)];
+    Value* op(Op::Kind kind, const std::vector<Value*>& args) {
+      Op op(kind, args);
+      bool is_constant = true;
+      for (const Value* arg : args) {
+        if (!dynamic_cast<const Constant*>(arg)) {
+          is_constant = false;
+          break;
+        }
+      }
+      
+      if (is_constant) {
+        const BitString* arg_values[Op::MAX_ARG_COUNT] = {nullptr};
+        for (size_t it = 0; it < args.size(); it++) {
+          arg_values[it] = &dynamic_cast<const Constant*>(args[it])->value;
+        }
+        return constant(op.eval(arg_values));
+      } else if (false) {
+        switch (kind) {
+          case Op::Kind::And:
+            if (args[0] == args[1]) {
+              return args[0];
+            }
+          break;
+          case Op::Kind::Or:
+            if (args[0] == args[1]) {
+              return args[0];
+            }
+          break;
+          case Op::Kind::Xor:
+            if (args[0] == args[1]) {
+              return constant(BitString(args[0]->width));
+            }
+          break;
+          case Op::Kind::Not:
+            if (const Op* arg = dynamic_cast<const Op*>(args[0])) {
+              if (arg->kind == Op::Kind::Not) {
+                return arg->args[0];
+              }
+            }
+          break;
+          // TODO
+          case Op::Kind::Eq:
+            if (args[0] == args[1]) {
+              return constant(BitString::from_bool(true));
+            }
+          break;
+          // TODO
+          case Op::Kind::Select:
+            if (args[1] == args[2]) {
+              return args[1];
+            } else if (const Constant* constant = dynamic_cast<const Constant*>(args[0])) {
+              if (constant->value[0]) {
+                return args[1];
+              } else {
+                return args[2];
+              }
+            }
+          break;
+        }
+      }
+      
+      return _ops[op];
     }
     
     Constant* constant(const BitString& bit_string) {
@@ -488,25 +575,15 @@ namespace hdl {
         if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
           result = constant->value;
         } else if (const Op* op = dynamic_cast<const Op*>(value)) {
-          #define arg(index) eval(op->args[index], values)
-          #define binop(op) result = arg(0) op arg(1);
-          
-          switch (op->kind) {
-            case Op::Kind::And: binop(&); break;
-            case Op::Kind::Or: binop(|); break;
-            case Op::Kind::Xor: binop(^); break;
-            case Op::Kind::Not: result = ~arg(0); break;
-            case Op::Kind::Add: binop(+); break;
-            case Op::Kind::Sub: binop(-); break;
-            case Op::Kind::Mul: throw_error(Error, "Not implemented"); break;
-            case Op::Kind::Eq: result = BitString::from_bool(arg(0) == arg(1)); break;
-            case Op::Kind::LtU: result = BitString::from_bool(arg(0).lt_u(arg(1))); break;
-            case Op::Kind::LtS: throw_error(Error, "Not implemented"); break;
-            case Op::Kind::Select: result = arg(0)[0] ? arg(1) : arg(2); break;
+          for (size_t it = 0; it < op->args.size(); it++) {
+            eval(op->args[it], values);
           }
           
-          #undef binop
-          #undef arg
+          const BitString* args[Op::MAX_ARG_COUNT] = {nullptr};
+          for (size_t it = 0; it < op->args.size(); it++) {
+            args[it] = &values.find(op->args[it])->second;
+          }
+          result = op->eval(args);
         } else {
           throw Error("");
         }
