@@ -147,7 +147,7 @@ namespace hdl {
         case Op::Kind::Not: result = ~arg(0); break;
         case Op::Kind::Add: binop(+); break;
         case Op::Kind::Sub: binop(-); break;
-        case Op::Kind::Mul: throw_error(Error, "Not implemented"); break;
+        case Op::Kind::Mul: result = arg(0).mul_u(arg(1)); break;
         case Op::Kind::Eq: result = BitString::from_bool(arg(0) == arg(1)); break;
         case Op::Kind::LtU: result = BitString::from_bool(arg(0).lt_u(arg(1))); break;
         case Op::Kind::LtS: throw_error(Error, "Not implemented"); break;

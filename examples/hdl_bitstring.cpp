@@ -20,6 +20,10 @@ int main() {
   std::cout << "b | c \t= " << (b | c) << std::endl;
   std::cout << "b ^ c \t= " << (b ^ c) << std::endl;
   
+  std::cout << "c << 3 \t= " << (c << 3) << std::endl;
+  
+  std::cout << "b * c \t= " << (b.mul_u(c)) << std::endl;
+  
   return 0;
 }
 

@@ -16,7 +16,7 @@ int main() {
     }),
     counter,
     module.op(hdl::Op::Kind::Add, {
-      counter
+      counter,
       module.constant(hdl::BitString("0001"))
     })
   });

@@ -136,6 +136,44 @@ namespace hdl {
       return add_carry<true, true>(other);
     }
     
+    BitString operator<<(size_t shift) const {
+      size_t inner_shift = shift % WORD_WIDTH;
+      size_t outer_shift = shift / WORD_WIDTH;
+      
+      BitString result(_width);
+      for (size_t it = 0; it + outer_shift < _data.size(); it++) {
+        result._data[it + outer_shift] |= _data[it] << inner_shift;
+        if (it + outer_shift + 1 < result._data.size() && inner_shift > 0) {
+          result._data[it + outer_shift + 1] |= _data[it] >> (WORD_WIDTH - inner_shift);
+        }
+      }
+      return result;
+    }
+    
+    BitString zero_extend(size_t to_width) const {
+      if (to_width < _width) {
+        throw_error(Error, "Cannot zero extend from width " << _width << ", to width " << to_width);
+      }
+      
+      BitString result(to_width);
+      for (size_t it = 0; it + 1 < _data.size(); it++) {
+        result._data[it] = _data[it];
+      }
+      result._data[_data.size() - 1] = _data.back() & mask_lower(_width % WORD_WIDTH);
+      
+      return result;
+    }
+    
+    BitString mul_u(const BitString& other) const {
+      BitString result(_width + other._width);
+      for (size_t it = 0; it < _width; it++) {
+        if (at(it)) {
+          result = result + (other.zero_extend(_width + other._width) << it);
+        }
+      }
+      return result;
+    }
+    
     void write(std::ostream& stream) const {
       stream << _width << "'b";
       for (size_t it = _width; it-- > 0;) {
