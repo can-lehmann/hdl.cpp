@@ -64,41 +64,62 @@ namespace hdl {
       Select
     };
     
+    static constexpr const char* KIND_NAMES[] = {
+      "And", "Or", "Xor", "Not",
+      "Add", "Sub", "Mul",
+      "Eq", "LtU", "LtS",
+      "Select"
+    };
+    
     const Kind kind;
     const std::vector<Value*> args;
     
   private:
-    static void expect_arg_count(const std::vector<Value*> args, size_t count) {
+    static void expect_arg_count(Kind& kind, const std::vector<Value*> args, size_t count) {
+      if (args.size() != count) {
+        throw_error(Error,
+          "Operator " << KIND_NAMES[(size_t)kind] <<
+          " expected " << count << " arguments, but got " << args.size()
+        );
+      }
     }
     
-    static void expect_equal_width(const std::vector<Value*> args, size_t a, size_t b) {
+    static void expect_equal_width(Kind& kind, const std::vector<Value*> args, size_t a, size_t b) {
+      if (args[a]->width != args[b]->width) {
+        throw_error(Error,
+          "Operator " << KIND_NAMES[(size_t)kind] <<
+          " expected arguments " << a << " and " << b <<
+          " to have equal bit width, but got arguments of widths " << 
+          args[a]->width << " and " << args[b]->width
+        );
+      }
     }
     
     static size_t infer_width(Kind& kind, const std::vector<Value*> args) {
       switch (kind) {
         case Kind::Not:
-          expect_arg_count(args, 1);
+          expect_arg_count(kind, args, 1);
           return args[0]->width;
         case Kind::And:
         case Kind::Or:
         case Kind::Xor:
         case Kind::Add:
         case Kind::Sub:
-          expect_arg_count(args, 2);
-          expect_equal_width(args, 0, 1);
+          expect_arg_count(kind, args, 2);
+          expect_equal_width(kind, args, 0, 1);
           return args[0]->width;
         case Kind::Mul:
-          expect_arg_count(args, 2);
+          expect_arg_count(kind, args, 2);
           return args[0]->width + args[1]->width;
         case Kind::Eq:
         case Kind::LtU:
         case Kind::LtS:
-          expect_arg_count(args, 2);
-          expect_equal_width(args, 0, 1);
+          expect_arg_count(kind, args, 2);
+          expect_equal_width(kind, args, 0, 1);
           return 1;
         case Kind::Select:
-          expect_arg_count(args, 3);
-          expect_equal_width(args, 1, 2);
+          expect_arg_count(kind, args, 3);
+          expect_equal_width(kind, args, 1, 2);
           return args[1]->width;
       }
     }
