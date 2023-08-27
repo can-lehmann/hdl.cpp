@@ -274,7 +274,7 @@ namespace hdl {
           arg_values[it] = &dynamic_cast<const Constant*>(args[it])->value;
         }
         return constant(op.eval(arg_values));
-      } else if (false) {
+      } else {
         switch (kind) {
           case Op::Kind::And:
             if (args[0] == args[1]) {

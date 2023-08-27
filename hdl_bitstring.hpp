@@ -35,6 +35,10 @@ namespace hdl {
     static Word mask_lower(size_t bits) {
       return bits == WORD_WIDTH ? ~Word(0) : (Word(1) << bits) - 1;
     }
+    
+    inline Word high_word_mask() const {
+      return _width % WORD_WIDTH == 0 ? ~Word(0) : mask_lower(_width % WORD_WIDTH);
+    }
   public:
     BitString() {}
     explicit BitString(size_t width): _width(width), _data(word_count(width)) {}
@@ -159,7 +163,7 @@ namespace hdl {
       for (size_t it = 0; it + 1 < _data.size(); it++) {
         result._data[it] = _data[it];
       }
-      result._data[_data.size() - 1] = _data.back() & mask_lower(_width % WORD_WIDTH);
+      result._data[_data.size() - 1] = _data.back() & high_word_mask();
       
       return result;
     }
@@ -192,7 +196,7 @@ namespace hdl {
         }
       }
       
-      Word mask = mask_lower(_width % WORD_WIDTH);
+      Word mask = high_word_mask();
       return (_data.back() & mask) == (other._data.back() & mask);
     }
     
@@ -207,7 +211,7 @@ namespace hdl {
     bool lt_u(const BitString& other) const {
       ensure_same_width(other);
       
-      Word mask = mask_lower(_width % WORD_WIDTH);
+      Word mask = high_word_mask();
       if ((_data.back() & mask) < (other._data.back() & mask)) {
         return true;
       } else if ((_data.back() & mask) > (other._data.back() & mask)) {
