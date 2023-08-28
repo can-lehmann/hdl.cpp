@@ -61,14 +61,14 @@ namespace hdl {
     enum class Kind {
       And, Or, Xor, Not,
       Add, Sub, Mul,
-      Eq, LtU, LtS,
+      Eq, LtU, LtS, LeU, LeS,
       Select
     };
     
     static constexpr const char* KIND_NAMES[] = {
       "And", "Or", "Xor", "Not",
       "Add", "Sub", "Mul",
-      "Eq", "LtU", "LtS",
+      "Eq", "LtU", "LtS", "LeU", "LeS",
       "Select"
     };
     
@@ -117,6 +117,8 @@ namespace hdl {
         case Kind::Eq:
         case Kind::LtU:
         case Kind::LtS:
+        case Kind::LeU:
+        case Kind::LeS:
           expect_arg_count(kind, args, 2);
           expect_equal_width(kind, args, 0, 1);
           return 1;
@@ -151,6 +153,8 @@ namespace hdl {
         case Op::Kind::Eq: result = BitString::from_bool(arg(0) == arg(1)); break;
         case Op::Kind::LtU: result = BitString::from_bool(arg(0).lt_u(arg(1))); break;
         case Op::Kind::LtS: throw_error(Error, "Not implemented"); break;
+        case Op::Kind::LeU: result = BitString::from_bool(arg(0).le_u(arg(1))); break;
+        case Op::Kind::LeS: throw_error(Error, "Not implemented"); break;
         case Op::Kind::Select: result = (arg(0))[0] ? arg(1) : arg(2); break;
       }
       
@@ -405,6 +409,8 @@ namespace hdl {
             case Op::Kind::Eq: expr << args[0] << " == " << args[1]; break;
             case Op::Kind::LtU: expr << "$unsigned(" << args[0] << ") < $unsigned(" << args[1] << ")"; break;
             case Op::Kind::LtS: expr << "$signed(" << args[0] << ") < $signed(" << args[1] << ")"; break;
+            case Op::Kind::LeU: expr << "$unsigned(" << args[0] << ") <= $unsigned(" << args[1] << ")"; break;
+            case Op::Kind::LeS: expr << "$signed(" << args[0] << ") <= $signed(" << args[1] << ")"; break;
             case Op::Kind::Select: expr << args[0] << " ? " << args[1] << " : " << args[2]; break;
           }
           expr << ')';

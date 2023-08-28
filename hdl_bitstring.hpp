@@ -231,6 +231,10 @@ namespace hdl {
       return false;
     }
     
+    bool le_u(const BitString& other) const {
+      return lt_u(other) || (*this) == other;
+    }
+    
   };
   
   std::ostream& operator<<(std::ostream& stream, const BitString& bit_string) {
