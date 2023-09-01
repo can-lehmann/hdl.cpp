@@ -5,6 +5,8 @@
 
 #include <inttypes.h>
 #include <vector>
+#include <set>
+#include <map>
 #include <fstream>
 
 #include "hdl.hpp"
@@ -19,6 +21,11 @@ namespace hdl {
         Literal() {}
         Literal(int64_t _id): id(_id) {}
         Literal operator!() const { return Literal(-id); }
+        
+        inline int64_t var() const { return (id < 0 ? -id : id) - 1; }
+        inline bool is_positive() const { return id > 0; }
+        inline bool is_negative() const { return id < 0; }
+        inline bool is_valid() const { return id != 0; }
       };
     private:
       std::vector<Literal> _literals;
@@ -27,7 +34,9 @@ namespace hdl {
     public:
       Cnf() { }
       
-      size_t size() const { return _clause_indices.size(); }
+      size_t var_count() const { return _var_count; }
+      size_t clause_count() const { return _clause_indices.size(); }
+      size_t size() const { return _literals.size(); }
       
       Literal var() {
         return Literal(++_var_count);
@@ -194,6 +203,175 @@ namespace hdl {
       }
       
       #undef binop
+      
+      // Simplify
+      
+      size_t clause_start_index(size_t clause_id) const {
+        return clause_id == 0 ? 0 : _clause_indices[clause_id - 1];
+      }
+      
+      size_t clause_end_index(size_t clause_id) const {
+        return _clause_indices[clause_id];
+      }
+      
+      Cnf simplify() const {
+        struct Simplification {
+          struct Uses {
+            std::set<size_t> positive;
+            std::set<size_t> negative;
+            
+            std::set<size_t>& operator[](bool polarity) {
+              if (polarity) {
+                return positive;
+              } else {
+                return negative;
+              }
+            }
+            
+            bool is_pure() const {
+              return positive.size() == 0 || negative.size() == 0;
+            }
+          };
+          
+          const Cnf& cnf;
+          std::vector<Uses> uses;
+          std::vector<size_t> clause_sizes;
+          std::map<int64_t, bool> assignments;
+          std::set<size_t> inactive_clauses;
+          std::vector<size_t> unit_clauses;
+          bool is_unsat = false;
+          
+          Simplification(const Cnf& _cnf): cnf(_cnf), uses(_cnf._var_count), clause_sizes(_cnf._clause_indices.size()) {
+            for (size_t clause_start = 0, clause_id = 0; clause_id < cnf._clause_indices.size(); clause_id++) {
+              size_t clause_end = cnf._clause_indices[clause_id];
+              for (size_t it = clause_start; it < clause_end; it++) {
+                Literal lit = cnf._literals[it];
+                uses[lit.var()][lit.is_positive()].insert(clause_id);
+              }
+              size_t clause_size = clause_end - clause_start;
+              clause_sizes[clause_id] = clause_size;
+              if (clause_size == 1) {
+                unit_clauses.push_back(clause_id);
+              } else if (clause_size == 0) {
+                is_unsat = true;
+              }
+              clause_start = clause_end;
+            }
+          }
+        
+          bool is_active(size_t clause_id) const {
+            return inactive_clauses.find(clause_id) == inactive_clauses.end();
+          }
+          
+          bool is_assigned(int64_t var_id) const {
+            return assignments.find(var_id) != assignments.end();
+          }
+        
+        private:
+          void deactivate_clause(size_t clause_id) {
+            inactive_clauses.insert(clause_id);
+            for (size_t it = cnf.clause_start_index(clause_id); it < cnf.clause_end_index(clause_id); it++) {
+              Literal lit = cnf._literals[it];
+              uses[lit.var()][lit.is_positive()].erase(clause_id);
+            }
+          }
+        
+        public:
+          void assign(int64_t var_id, bool value) {
+            if (is_unsat) { return; }
+            if (is_assigned(var_id)) {
+              if (assignments.at(var_id) != value) {
+                is_unsat = true;
+              }
+              return;
+            }
+            
+            assignments[var_id] = value;
+            Uses var_uses = uses[var_id];
+            for (size_t clause_id : var_uses[value]) {
+              deactivate_clause(clause_id);
+            }
+            for (size_t clause_id : var_uses[!value]) {
+              for (size_t it = cnf.clause_start_index(clause_id); it < cnf.clause_end_index(clause_id); it++) {
+                if (cnf._literals[it].var() == var_id) {
+                  clause_sizes[clause_id] -= 1;
+                }
+                if (clause_sizes[clause_id] == 1) {
+                  unit_clauses.push_back(clause_id);
+                } else if (clause_sizes[clause_id] == 0) {
+                  is_unsat = true;
+                  return;
+                }
+              }
+            }
+          }
+          
+          void unit_prop() {
+            while (unit_clauses.size() > 0 && !is_unsat) {
+              size_t clause_id = unit_clauses.back();
+              unit_clauses.pop_back();
+              
+              if (!is_active(clause_id) || clause_sizes[clause_id] != 1) {
+                continue;
+              }
+              
+              for (size_t it = cnf.clause_start_index(clause_id); it < cnf.clause_end_index(clause_id); it++) {
+                Literal lit = cnf._literals[it];
+                if (!is_assigned(lit.var())) {
+                  assign(lit.var(), lit.is_positive());
+                  break;
+                }
+              }
+            }
+          }
+          
+          void assign_pure() {
+            for (size_t var_id = 0; var_id < uses.size(); var_id++) {
+              if (!is_assigned(var_id) && uses[var_id].is_pure()) {
+                assign(var_id, uses[var_id].positive.size() > 0);
+              }
+            }
+          }
+          
+          Cnf to_cnf() {
+            Cnf result;
+            if (is_unsat) {
+              result.add_clause({});
+              return result;
+            }
+            std::vector<Literal> vars(cnf._var_count);
+            for (size_t clause_start = 0, clause_id = 0; clause_id < cnf._clause_indices.size(); clause_id++) {
+              size_t clause_end = cnf._clause_indices[clause_id];
+              
+              if (inactive_clauses.find(clause_id) == inactive_clauses.end()) {
+                std::vector<Literal> clause;
+                for (size_t it = clause_start; it < clause_end; it++) {
+                  if (assignments.find(cnf._literals[it].var()) != assignments.end()) {
+                    continue;
+                  }
+                  if (!vars[cnf._literals[it].var()].is_valid()) {
+                    vars[cnf._literals[it].var()] = result.var();
+                  }
+                  Literal lit = vars[cnf._literals[it].var()];
+                  if (cnf._literals[it].is_negative()) {
+                    lit = !lit;
+                  }
+                  clause.push_back(lit);
+                }
+                result.add_clause(clause);
+              }
+              
+              clause_start = clause_end;
+            }
+            return result;
+          }
+        };
+        
+        Simplification simplification(*this);
+        simplification.unit_prop();
+        simplification.assign_pure();
+        return simplification.to_cnf();
+      }
       
       // I/O
       
