@@ -3,3 +3,5 @@ examples/hdl
 examples/test.v
 examples/graph.gv
 examples/graph.svg
+examples/proof.cnf
+examples/hdl_proof
