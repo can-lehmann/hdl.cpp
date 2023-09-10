@@ -63,6 +63,7 @@ namespace hdl {
       And, Or, Xor, Not,
       Add, Sub, Mul,
       Eq, LtU, LtS, LeU, LeS,
+      Concat, Slice,
       Select
     };
     
@@ -70,6 +71,7 @@ namespace hdl {
       "And", "Or", "Xor", "Not",
       "Add", "Sub", "Mul",
       "Eq", "LtU", "LtS", "LeU", "LeS",
+      "Concat", "Slice",
       "Select"
     };
     
@@ -79,7 +81,7 @@ namespace hdl {
     const std::vector<Value*> args;
     
   private:
-    static void expect_arg_count(Kind& kind, const std::vector<Value*> args, size_t count) {
+    static void expect_arg_count(Kind& kind, const std::vector<Value*>& args, size_t count) {
       if (args.size() != count) {
         throw_error(Error,
           "Operator " << KIND_NAMES[(size_t)kind] <<
@@ -88,7 +90,7 @@ namespace hdl {
       }
     }
     
-    static void expect_equal_width(Kind& kind, const std::vector<Value*> args, size_t a, size_t b) {
+    static void expect_equal_width(Kind& kind, const std::vector<Value*>& args, size_t a, size_t b) {
       if (args[a]->width != args[b]->width) {
         throw_error(Error,
           "Operator " << KIND_NAMES[(size_t)kind] <<
@@ -99,7 +101,7 @@ namespace hdl {
       }
     }
     
-    static size_t infer_width(Kind& kind, const std::vector<Value*> args) {
+    static size_t infer_width(Kind& kind, const std::vector<Value*>& args) {
       switch (kind) {
         case Kind::Not:
           expect_arg_count(kind, args, 1);
@@ -123,6 +125,21 @@ namespace hdl {
           expect_arg_count(kind, args, 2);
           expect_equal_width(kind, args, 0, 1);
           return 1;
+        case Kind::Concat:
+          expect_arg_count(kind, args, 2);
+          return args[0]->width + args[1]->width;
+        case Kind::Slice:
+          expect_arg_count(kind, args, 3);
+          if (const Constant* constant = dynamic_cast<const Constant*>(args[2])) {
+            size_t width = (size_t)constant->value.as_uint64();
+            return width;
+          } else {
+            throw_error(Error,
+              "Third argument of " << KIND_NAMES[(size_t)kind] <<
+              " operator must be constant."
+            );
+          }
+        break;
         case Kind::Select:
           expect_arg_count(kind, args, 3);
           expect_equal_width(kind, args, 1, 2);
@@ -156,6 +173,8 @@ namespace hdl {
         case Op::Kind::LtS: throw_error(Error, "Not implemented"); break;
         case Op::Kind::LeU: result = BitString::from_bool(arg(0).le_u(arg(1))); break;
         case Op::Kind::LeS: throw_error(Error, "Not implemented"); break;
+        case Op::Kind::Concat: result = arg(0).concat(arg(1)); break;
+        case Op::Kind::Slice: result = arg(0).slice_width(arg(1).as_uint64(), arg(2).as_uint64()); break;
         case Op::Kind::Select: result = (arg(0))[0] ? arg(1) : arg(2); break;
       }
       
@@ -241,6 +260,9 @@ namespace hdl {
     std::vector<Output> _outputs;
   public:
     Module(const std::string& name): _name(name) {}
+    
+    Module(const Module& other) = delete;
+    Module& operator=(const Module& other) = delete;
     
     inline const std::string& name() const { return _name; }
     inline const std::vector<Reg*> regs() const { return _regs; }
@@ -412,12 +434,17 @@ namespace hdl {
           }
           return _names.at(value);
         }
+        
+        if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
+          std::ostringstream expr;
+          expr << constant->value;
+          return expr.str();
+        }
+        
         closed.insert(value);
         
         std::ostringstream expr;
-        if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
-          expr << constant->value;
-        } else if (const Op* op = dynamic_cast<const Op*>(value)) {
+        if (const Op* op = dynamic_cast<const Op*>(value)) {
           std::vector<std::string> args;
           for (const Value* arg : op->args) {
             args.emplace_back(print(stream, arg, closed));
@@ -437,6 +464,9 @@ namespace hdl {
             case Op::Kind::LtS: expr << "$signed(" << args[0] << ") < $signed(" << args[1] << ")"; break;
             case Op::Kind::LeU: expr << "$unsigned(" << args[0] << ") <= $unsigned(" << args[1] << ")"; break;
             case Op::Kind::LeS: expr << "$signed(" << args[0] << ") <= $signed(" << args[1] << ")"; break;
+            case Op::Kind::Concat: expr << '{' << args[0] << ',' << args[1] << '}'; break;
+            // TODO: Correctly count usages in Slice
+            case Op::Kind::Slice: expr << args[0] << '[' << args[2] << '+' << args[1] << " - 1:" << args[1] << ']'; break;
             case Op::Kind::Select: expr << args[0] << " ? " << args[1] << " : " << args[2]; break;
           }
           expr << ')';
@@ -465,7 +495,9 @@ namespace hdl {
         
         std::unordered_map<const Value*, size_t> counts = _module.usages();
         for (const auto& [value, count] : counts) {
-          if (count > 1 && _names.find(value) == _names.end()) {
+          if (count > 1 &&
+              _names.find(value) == _names.end() &&
+              dynamic_cast<const Constant*>(value) == nullptr) {
             _names[value] = "value" + std::to_string(_names.size());
           }
         }
@@ -517,6 +549,12 @@ namespace hdl {
         
         stream << "endmodule\n";
       }
+      
+      void save(const char* path) const {
+        std::ofstream file;
+        file.open(path);
+        print(file);
+      }
     };
   }
   
@@ -539,6 +577,8 @@ namespace hdl {
           case Op::Kind::LtS:
           case Op::Kind::LeU:
           case Op::Kind::LeS: names("a", "b");
+          case Op::Kind::Concat: names("high", "low");
+          case Op::Kind::Slice: names("value", "offset", "width");
           case Op::Kind::Select: names("cond", "a", "b");
           default: return nullptr;
         }

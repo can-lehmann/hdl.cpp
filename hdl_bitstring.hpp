@@ -67,7 +67,7 @@ namespace hdl {
     static BitString from_uint(T value) {
       BitString bit_string(sizeof(T) * 8);
       if (sizeof(T) > sizeof(Word)) {
-        for (size_t it = 0; it < sizeof(T) * 8; it += WORD_WIDTH) {
+        for (size_t it = 0; it * WORD_WIDTH < sizeof(T) * 8; it++) {
           bit_string._data[it] = Word(value & T(~Word(0)));
           value >>= WORD_WIDTH;
         }
@@ -168,6 +168,21 @@ namespace hdl {
       return result;
     }
     
+    BitString operator>>(size_t shift) const {
+      size_t inner_shift = shift % WORD_WIDTH;
+      size_t outer_shift = shift / WORD_WIDTH;
+      
+      BitString result(_width);
+      for (size_t it = outer_shift; it < _data.size(); it++) {
+        Word word = it + 1 == _data.size() ? _data[it] & high_word_mask() : _data[it];
+        result._data[it - outer_shift] |= word >> inner_shift;
+        if (it > outer_shift && inner_shift > 0) {
+          result._data[it - outer_shift - 1] |= word << (WORD_WIDTH - inner_shift);
+        }
+      }
+      return result;
+    }
+    
     BitString zero_extend(size_t to_width) const {
       if (to_width < _width) {
         throw_error(Error, "Cannot zero extend from width " << _width << ", to width " << to_width);
@@ -179,6 +194,16 @@ namespace hdl {
       }
       result._data[_data.size() - 1] = _data.back() & high_word_mask();
       
+      return result;
+    }
+    
+    BitString truncate(size_t to_width) const {
+      if (to_width > _width) {
+        throw_error(Error, "Cannot truncate from width " << _width << ", to width " << to_width);
+      }
+      
+      BitString result(to_width);
+      std::copy(_data.begin(), _data.begin() + result._data.size(), result._data.begin());
       return result;
     }
     
@@ -269,6 +294,27 @@ namespace hdl {
     
     bool le_u(const BitString& other) const {
       return lt_u(other) || (*this) == other;
+    }
+    
+    BitString concat(const BitString& other) const {
+      size_t target = _width + other._width;
+      return other.zero_extend(target) | (zero_extend(target) << other._width);
+    }
+    
+    BitString slice_width(size_t offset, size_t width) const {
+      return (*this >> offset).truncate(width);
+    }
+    
+    uint64_t as_uint64() const {
+      uint64_t value = 0;
+      size_t it = 0;
+      for (; it * WORD_WIDTH < sizeof(uint64_t) * 8 && it + 1 < _data.size(); it++) {
+        value |= uint64_t(_data[it]) << (it * WORD_WIDTH);
+      }
+      if (it + 1 >= _data.size() && it * WORD_WIDTH < sizeof(uint64_t) * 8) {
+        value |= uint64_t(_data.back() & high_word_mask()) << (it * WORD_WIDTH);
+      }
+      return value;
     }
     
   };
