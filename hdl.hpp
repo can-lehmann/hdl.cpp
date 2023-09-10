@@ -39,6 +39,7 @@ namespace hdl {
     Value* initial = nullptr;
     Value* clock = nullptr;
     Value* next = nullptr;
+    std::string name;
     
     Reg(Value* _initial, Value* _clock):
       Value(_initial->width), initial(_initial), clock(_clock) {}
@@ -258,6 +259,7 @@ namespace hdl {
     
     Reg* reg(Value* initial, Value* clock) {
       Reg* reg = new Reg(initial, clock);
+      reg->next = reg;
       _regs.push_back(reg);
       return reg;
     }
@@ -283,11 +285,35 @@ namespace hdl {
           case Op::Kind::And:
             if (args[0] == args[1]) {
               return args[0];
+            } else if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return constant;
+              } else if (constant->value.is_all_ones()) {
+                return args[1];
+              }
+            } else if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return constant;
+              } else if (constant->value.is_all_ones()) {
+                return args[0];
+              }
             }
           break;
           case Op::Kind::Or:
             if (args[0] == args[1]) {
               return args[0];
+            } else if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return args[1];
+              } else if (constant->value.is_all_ones()) {
+                return constant;
+              }
+            } else if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              } else if (constant->value.is_all_ones()) {
+                return constant;
+              }
             }
           break;
           case Op::Kind::Xor:
@@ -498,6 +524,27 @@ namespace hdl {
     class Printer {
     private:
       Module& _module;
+      bool _show_clocks = false;
+      bool _split_regs = true;
+      
+      static const char** const arg_names(Op::Kind kind) {
+        #define names(...) { \
+          static const char* array[] = {__VA_ARGS__}; \
+          return array; \
+        }
+        
+        switch (kind) {
+          case Op::Kind::Sub:
+          case Op::Kind::LtU:
+          case Op::Kind::LtS:
+          case Op::Kind::LeU:
+          case Op::Kind::LeS: names("a", "b");
+          case Op::Kind::Select: names("cond", "a", "b");
+          default: return nullptr;
+        }
+        
+        #undef names
+      }
       
       size_t print(std::ostream& stream,
                    const Value* value,
@@ -520,13 +567,40 @@ namespace hdl {
         }
         
         if (const Op* op = dynamic_cast<const Op*>(value)) {
+          const char** names = arg_names(op->kind);
+          size_t it = 0;
           for (const Value* arg : op->args) {
             size_t arg_id = print(stream, arg, ids);
-            stream << "  n" << arg_id << " -> n" << id << ";\n";
+            stream << "  n" << arg_id << " -> n" << id;
+            if (names != nullptr) {
+              stream << " [label=" << names[it] << "]";
+            }
+            stream << ";\n";
+            it++;
           }
         }
         
         return id;
+      }
+      
+      void declare_regs(std::ostream& stream,
+                        char prefix,
+                        const std::unordered_map<const Value*, size_t>& ids) const {
+        if (_split_regs) {
+          stream << "  { rank=same;\n";
+        }
+        for (const Reg* reg : _module.regs()) {
+          stream << "  " << prefix << ids.at(reg) << " [shape=box, label=\"";
+          if (reg->name.size() == 0) {
+            stream << "reg" << ids.at(reg);
+          } else {
+            stream << reg->name;
+          }
+          stream << "\"];\n";
+        }
+        if (_split_regs) {
+          stream << "  }\n";
+        }
       }
     public:
       Printer(Module& module): _module(module) {}
@@ -538,16 +612,24 @@ namespace hdl {
         
         for (const Reg* reg : _module.regs()) {
           ids[reg] = ids.size();
-          stream << "  n"  << ids.at(reg) << " [shape=box, label=reg" << ids.at(reg) << "];\n";
+        }
+        
+        declare_regs(stream, 'n', ids);
+        if (_split_regs) {
+          declare_regs(stream, 'r', ids);
         }
         
         for (const Reg* reg : _module.regs()) {
           size_t initial_id = print(stream, reg->initial, ids);
-          size_t clock_id = print(stream, reg->clock, ids);
-          size_t next_id = print(stream, reg->next, ids);
-          stream << "  n" << initial_id << " -> n" << ids.at(reg) << " [label=initial];\n";
-          stream << "  n" << clock_id << " -> n" << ids.at(reg) << " [label=clock];\n";
-          stream << "  n" << next_id << " -> n" << ids.at(reg) << " [label=next];\n";
+          stream << "  n" << initial_id << " -> " << (_split_regs ? 'r' : 'n') << ids.at(reg) << " [label=initial];\n";
+          if (_show_clocks) {
+            size_t clock_id = print(stream, reg->clock, ids);
+            stream << "  n" << clock_id << " -> " << (_split_regs ? 'r' : 'n') << ids.at(reg) << " [label=clock];\n";
+          }
+          if (reg->next != nullptr) {
+            size_t next_id = print(stream, reg->next, ids);
+            stream << "  n" << next_id << " -> " << (_split_regs ? 'r' : 'n') << ids.at(reg) << " [label=next];\n";
+          }
         }
         
         stream << "}\n";

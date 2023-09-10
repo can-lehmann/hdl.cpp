@@ -63,6 +63,20 @@ namespace hdl {
       return bit_string;
     }
     
+    template <class T>
+    static BitString from_uint(T value) {
+      BitString bit_string(sizeof(T) * 8);
+      if (sizeof(T) > sizeof(Word)) {
+        for (size_t it = 0; it < sizeof(T) * 8; it += WORD_WIDTH) {
+          bit_string._data[it] = Word(value & T(~Word(0)));
+          value >>= WORD_WIDTH;
+        }
+      } else {
+        bit_string._data[0] = Word(value);
+      }
+      return bit_string;
+    }
+    
     inline size_t width() const { return _width; }
     
     bool at(size_t index) const {
@@ -198,6 +212,28 @@ namespace hdl {
       
       Word mask = high_word_mask();
       return (_data.back() & mask) == (other._data.back() & mask);
+    }
+    
+    bool is_zero() const {
+      for (size_t it = 0; it + 1 < _data.size(); it++) {
+        if (_data[it] != 0) {
+          return false;
+        }
+      }
+      
+      Word mask = high_word_mask();
+      return (_data.back() & mask) == 0;
+    }
+    
+    bool is_all_ones() const {
+      for (size_t it = 0; it + 1 < _data.size(); it++) {
+        if (_data[it] != ~Word(0)) {
+          return false;
+        }
+      }
+      
+      Word mask = high_word_mask();
+      return (_data.back() & mask) == (~Word(0) & mask);
     }
     
     size_t hash() const {
