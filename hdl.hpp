@@ -240,6 +240,12 @@ namespace hdl {
     public:
       Hashcons() {}
       
+      ~Hashcons() {
+        for (const Cell& cell : _nodes) {
+          delete cell.node;
+        }
+      }
+      
       T* operator[](const T& node) {
         Cell cell((T*)&node);
         if (_nodes.find(cell) == _nodes.end()) {
@@ -249,6 +255,18 @@ namespace hdl {
         } else {
           return _nodes.find(cell)->node;
         }
+      }
+      
+      void gc(std::set<Value*> reached) {
+        std::unordered_set<Cell, CellHasher> nodes;
+        for (const Cell& cell : _nodes) {
+          if (reached.find(cell.node) == reached.end()) {
+            delete cell.node;
+          } else {
+            nodes.insert(cell);
+          }
+        }
+        _nodes = nodes;
       }
     };
     
@@ -405,6 +423,43 @@ namespace hdl {
       }
       
       return counts;
+    }
+    
+  private:
+    void trace(Value* value, std::set<Value*>& reached) {
+      if (reached.find(value) == reached.end()) {
+        reached.insert(value);
+        
+        if (Op* op = dynamic_cast<Op*>(value)) {
+          for (Value* arg : op->args) {
+            trace(arg, reached);
+          }
+        } else if (Reg* reg = dynamic_cast<Reg*>(value)) {
+          trace(reg->initial, reached);
+          trace(reg->clock, reached);
+          trace(reg->next, reached);
+        }
+      }
+    }
+  public:
+    void gc() {
+      std::set<Value*> reached;
+      for (Output& output : _outputs) {
+        trace(output.value, reached);
+      }
+      
+      std::vector<Reg*> regs;
+      for (Reg* reg : _regs) {
+        if (reached.find(reg) == reached.end()) {
+          delete reg;
+        } else {
+          regs.push_back(reg);
+        }
+      }
+      _regs = regs;
+      
+      _ops.gc(reached);
+      _constants.gc(reached);
     }
   };
   
