@@ -565,6 +565,21 @@ namespace hdl {
       bool _show_clocks = false;
       bool _split_regs = true;
       
+      struct Context {
+        std::ostream& stream;
+        std::unordered_map<const Value*, size_t> ids;
+        size_t id_count = 0;
+        
+        Context(std::ostream& _stream): stream(_stream) {}
+        
+        size_t alloc() { return id_count++; }
+        size_t alloc(const Value* value) {
+          size_t id = alloc();
+          ids[value] = id;
+          return id;
+        }
+      };
+      
       static const char** const arg_names(Op::Kind kind) {
         #define names(...) { \
           static const char* array[] = {__VA_ARGS__}; \
@@ -586,36 +601,45 @@ namespace hdl {
         #undef names
       }
       
-      size_t print(std::ostream& stream,
-                   const Value* value,
-                   std::unordered_map<const Value*, size_t>& ids) const {
-        if (ids.find(value) != ids.end()) {
-          return ids.at(value);
+      size_t print(const Value* value, Context& ctx) const {
+        if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
+          size_t id = ctx.alloc();
+          ctx.stream << "  n" << id << " [shape=none, label=\"" << constant->value.width() << "'b";
+          size_t highest_significant_digit = constant->value.width() - 1;
+          while (highest_significant_digit > 0 && !constant->value[highest_significant_digit]) {
+            highest_significant_digit--;
+          }
+          for (size_t it = highest_significant_digit + 1; it-- > 0; ) {
+            ctx.stream << (constant->value[it] ? '1' : '0');
+          }
+          ctx.stream << "\"];\n";
+          return id;
         }
         
-        size_t id = ids.size();
-        ids[value] = id;
+        if (ctx.ids.find(value) != ctx.ids.end()) {
+          return ctx.ids.at(value);
+        }
+        
+        size_t id = ctx.alloc(value);
         
         if (const Op* op = dynamic_cast<const Op*>(value)) {
-          stream << "  n" << id << " [label=" << Op::KIND_NAMES[(size_t)op->kind] << "];\n";
-        } else if (const Constant* op = dynamic_cast<const Constant*>(value)) {
-          stream << "  n" << id << " [shape=none, label=\"" << op->value << "\"];\n";
+          ctx.stream << "  n" << id << " [label=" << Op::KIND_NAMES[(size_t)op->kind] << "];\n";
         } else if (const Input* op = dynamic_cast<const Input*>(value)) {
-          stream << "  n" << id << " [shape=box, label=\"" << op->name << "\"];\n";
+          ctx.stream << "  n" << id << " [shape=box, label=\"" << op->name << "\"];\n";
         } else {
-          stream << "  n" << id << ";\n";
+          ctx.stream << "  n" << id << ";\n";
         }
         
         if (const Op* op = dynamic_cast<const Op*>(value)) {
           const char** names = arg_names(op->kind);
           size_t it = 0;
           for (const Value* arg : op->args) {
-            size_t arg_id = print(stream, arg, ids);
-            stream << "  n" << arg_id << " -> n" << id;
+            size_t arg_id = print(arg, ctx);
+            ctx.stream << "  n" << arg_id << " -> n" << id;
             if (names != nullptr) {
-              stream << " [label=" << names[it] << "]";
+              ctx.stream << " [label=" << names[it] << "]";
             }
-            stream << ";\n";
+            ctx.stream << ";\n";
             it++;
           }
         }
@@ -623,23 +647,21 @@ namespace hdl {
         return id;
       }
       
-      void declare_regs(std::ostream& stream,
-                        char prefix,
-                        const std::unordered_map<const Value*, size_t>& ids) const {
+      void declare_regs(char prefix, Context& ctx) const {
         if (_split_regs) {
-          stream << "  { rank=same;\n";
+          ctx.stream << "  { rank=same;\n";
         }
         for (const Reg* reg : _module.regs()) {
-          stream << "  " << prefix << ids.at(reg) << " [shape=box, label=\"";
+          ctx.stream << "  " << prefix << ctx.ids.at(reg) << " [shape=box, label=\"";
           if (reg->name.size() == 0) {
-            stream << "reg" << ids.at(reg);
+            ctx.stream << "reg" << ctx.ids.at(reg);
           } else {
-            stream << reg->name;
+            ctx.stream << reg->name;
           }
-          stream << "\"];\n";
+          ctx.stream << "\"];\n";
         }
         if (_split_regs) {
-          stream << "  }\n";
+          ctx.stream << "  }\n";
         }
       }
     public:
@@ -648,27 +670,27 @@ namespace hdl {
       void print(std::ostream& stream) const {
         stream << "digraph {\n";
         
-        std::unordered_map<const Value*, size_t> ids;
+        Context ctx(stream);
         
         for (const Reg* reg : _module.regs()) {
-          ids[reg] = ids.size();
+          ctx.alloc(reg);
         }
         
-        declare_regs(stream, 'n', ids);
+        declare_regs('n', ctx);
         if (_split_regs) {
-          declare_regs(stream, 'r', ids);
+          declare_regs('r', ctx);
         }
         
         for (const Reg* reg : _module.regs()) {
-          size_t initial_id = print(stream, reg->initial, ids);
-          stream << "  n" << initial_id << " -> " << (_split_regs ? 'r' : 'n') << ids.at(reg) << " [label=initial];\n";
+          size_t initial_id = print(reg->initial, ctx);
+          stream << "  n" << initial_id << " -> " << (_split_regs ? 'r' : 'n') << ctx.ids.at(reg) << " [label=initial];\n";
           if (_show_clocks) {
-            size_t clock_id = print(stream, reg->clock, ids);
-            stream << "  n" << clock_id << " -> " << (_split_regs ? 'r' : 'n') << ids.at(reg) << " [label=clock];\n";
+            size_t clock_id = print(reg->clock, ctx);
+            stream << "  n" << clock_id << " -> " << (_split_regs ? 'r' : 'n') << ctx.ids.at(reg) << " [label=clock];\n";
           }
           if (reg->next != nullptr) {
-            size_t next_id = print(stream, reg->next, ids);
-            stream << "  n" << next_id << " -> " << (_split_regs ? 'r' : 'n') << ids.at(reg) << " [label=next];\n";
+            size_t next_id = print(reg->next, ctx);
+            stream << "  n" << next_id << " -> " << (_split_regs ? 'r' : 'n') << ctx.ids.at(reg) << " [label=next];\n";
           }
         }
         
@@ -774,6 +796,9 @@ namespace hdl {
       }
       
       void update(const std::vector<BitString>& inputs) {
+        if (inputs.size() != _module.inputs().size()) {
+          throw_error(Error, "Module has " << _module.inputs().size() << " inputs, but simulation only got " << inputs.size() << " values.");
+        }
         _inputs = inputs;
         
         Values values = eval();
