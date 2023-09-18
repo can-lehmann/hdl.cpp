@@ -5,3 +5,5 @@ examples/graph.gv
 examples/graph.svg
 examples/proof.cnf
 examples/hdl_proof
+tests/test_hdl
+tests/test_bitstring
