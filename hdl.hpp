@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
+#include <set>
 #include <sstream>
 #include <fstream>
 
@@ -64,6 +65,7 @@ namespace hdl {
       Add, Sub, Mul,
       Eq, LtU, LtS, LeU, LeS,
       Concat, Slice,
+      Shl, ShrU, ShrS,
       Select
     };
     
@@ -72,6 +74,7 @@ namespace hdl {
       "Add", "Sub", "Mul",
       "Eq", "LtU", "LtS", "LeU", "LeS",
       "Concat", "Slice",
+      "Shl", "ShrU", "ShrS",
       "Select"
     };
     
@@ -140,6 +143,11 @@ namespace hdl {
             );
           }
         break;
+        case Kind::Shl:
+        case Kind::ShrU:
+        case Kind::ShrS:
+          expect_arg_count(kind, args, 2);
+          return args[0]->width;
         case Kind::Select:
           expect_arg_count(kind, args, 3);
           expect_equal_width(kind, args, 1, 2);
@@ -175,6 +183,9 @@ namespace hdl {
         case Op::Kind::LeS: throw_error(Error, "Not implemented"); break;
         case Op::Kind::Concat: result = arg(0).concat(arg(1)); break;
         case Op::Kind::Slice: result = arg(0).slice_width(arg(1).as_uint64(), arg(2).as_uint64()); break;
+        case Kind::Shl: result = arg(0) << arg(1).as_uint64(); break;
+        case Kind::ShrU: result = arg(0).shr_u(arg(1).as_uint64()); break;
+        case Kind::ShrS: result = arg(0).shr_s(arg(1).as_uint64()); break;
         case Op::Kind::Select: result = (arg(0))[0] ? arg(1) : arg(2); break;
       }
       
@@ -368,13 +379,103 @@ namespace hdl {
               }
             }
           break;
+          case Op::Kind::Add:
+            if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return args[1];
+              }
+            }
+            if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+          break;
+          case Op::Kind::Sub:
+            if (args[0] == args[1]) {
+              return constant(BitString(args[0]->width));
+            }
+            if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+          break;
           // TODO
           case Op::Kind::Eq:
             if (args[0] == args[1]) {
               return constant(BitString::from_bool(true));
             }
           break;
+          case Op::Kind::LtU:
+            if (args[0] == args[1]) {
+              return constant(BitString::from_bool(false));
+            }
+            if (Constant* constant_b = dynamic_cast<Constant*>(args[1])) {
+              if (constant_b->value.is_zero()) {
+                return constant(BitString::from_bool(false));
+              }
+            }
+          break;
+          case Op::Kind::LtS:
+            if (args[0] == args[1]) {
+              return constant(BitString::from_bool(false));
+            }
+          break;
+          case Op::Kind::LeU:
+            if (args[0] == args[1]) {
+              return constant(BitString::from_bool(true));
+            }
+            if (Constant* constant_a = dynamic_cast<Constant*>(args[0])) {
+              if (constant_a->value.is_zero()) {
+                return constant(BitString::from_bool(true));
+              }
+            }
+          break;
+          case Op::Kind::LeS:
+            if (args[0] == args[1]) {
+              return constant(BitString::from_bool(true));
+            }
+          break;
           // TODO
+          case Op::Kind::Shl:
+            if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+            if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+          break;
+          case Op::Kind::ShrU:
+            if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+            if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+          break;
+          case Op::Kind::ShrS:
+            if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              } else if (constant->value.is_all_ones()) {
+                return args[0];
+              }
+            }
+            if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
+              if (constant->value.is_zero()) {
+                return args[0];
+              }
+            }
+          break;
           case Op::Kind::Select:
             if (args[1] == args[2]) {
               return args[1];
@@ -522,6 +623,9 @@ namespace hdl {
             case Op::Kind::Concat: expr << '{' << args[0] << ',' << args[1] << '}'; break;
             // TODO: Correctly count usages in Slice
             case Op::Kind::Slice: expr << args[0] << '[' << args[2] << '+' << args[1] << " - 1:" << args[1] << ']'; break;
+            case Op::Kind::Shl: expr << args[0] << " << " << args[1]; break;
+            case Op::Kind::ShrU: expr << args[0] << " >> " << args[1]; break;
+            case Op::Kind::ShrS: expr << args[0] << " >>> " << args[1]; break;
             case Op::Kind::Select: expr << args[0] << " ? " << args[1] << " : " << args[2]; break;
           }
           expr << ')';
@@ -659,14 +763,8 @@ namespace hdl {
       size_t print(const Value* value, Context& ctx) const {
         if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
           size_t id = ctx.alloc();
-          ctx.stream << "  n" << id << " [shape=none, label=\"" << constant->value.width() << "'b";
-          size_t highest_significant_digit = constant->value.width() - 1;
-          while (highest_significant_digit > 0 && !constant->value[highest_significant_digit]) {
-            highest_significant_digit--;
-          }
-          for (size_t it = highest_significant_digit + 1; it-- > 0; ) {
-            ctx.stream << (constant->value[it] ? '1' : '0');
-          }
+          ctx.stream << "  n" << id << " [shape=none, label=\"";
+          constant->value.write_short(ctx.stream);
           ctx.stream << "\"];\n";
           return id;
         }

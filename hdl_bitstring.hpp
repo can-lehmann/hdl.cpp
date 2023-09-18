@@ -168,7 +168,7 @@ namespace hdl {
       return result;
     }
     
-    BitString operator>>(size_t shift) const {
+    BitString shr_u(size_t shift) const {
       size_t inner_shift = shift % WORD_WIDTH;
       size_t outer_shift = shift / WORD_WIDTH;
       
@@ -181,6 +181,34 @@ namespace hdl {
         }
       }
       return result;
+    }
+  
+  private:
+    void fill_upper(size_t from_bit) {
+      size_t from_word = from_bit / WORD_WIDTH;
+      size_t from_inner = from_bit % WORD_WIDTH;
+      
+      _data[from_word] |= ~mask_lower(from_inner);
+      for (size_t it = from_word + 1; it < _data.size(); it++) {
+        _data[it] = ~Word(0);
+      }
+    }
+  public:
+    BitString shr_s(size_t shift) const {
+      BitString result = shr_u(shift);
+      
+      size_t inner_shift = shift % WORD_WIDTH;
+      size_t outer_shift = shift / WORD_WIDTH;
+      
+      if (at(_width - 1)) {
+        result.fill_upper(shift >= _width ? 0 : _width - shift);
+      }
+      
+      return result;
+    }
+    
+    BitString operator>>(size_t shift) const {
+      return shr_u(shift);
     }
     
     BitString zero_extend(size_t to_width) const {
@@ -224,6 +252,21 @@ namespace hdl {
       }
     }
     
+    void write_short(std::ostream& stream) const {
+      if (_width == 0) {
+        stream << "0'b0";
+      } else {
+        stream << _width << "'b";
+        size_t highest_significant_digit = _width - 1;
+        while (highest_significant_digit > 0 && !(*this)[highest_significant_digit]) {
+          highest_significant_digit--;
+        }
+        for (size_t it = highest_significant_digit + 1; it-- > 0; ) {
+          stream << ((*this)[it] ? '1' : '0');
+        }
+      }
+    }
+    
     bool operator==(const BitString& other) const {
       if (_width != other._width) {
         return false;
@@ -263,9 +306,10 @@ namespace hdl {
     
     size_t hash() const {
       size_t value = std::hash<size_t>()(_width);
-      for (size_t it = 0; it < _data.size(); it++) {
+      for (size_t it = 0; it + 1 < _data.size(); it++) {
         value ^= std::hash<Word>()(_data[it]);
       }
+      value ^= std::hash<Word>()(_data.back() & high_word_mask());
       return value;
     }
     
