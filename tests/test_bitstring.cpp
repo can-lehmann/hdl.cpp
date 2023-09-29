@@ -166,6 +166,27 @@ int main() {
     assert(!(BitString::from_uint(uint64_t(5)).le_u(BitString::from_uint(uint64_t(4)))));
   });
   
+  Test("lt_s", [](){
+    assert(BitString("00010").lt_s(BitString("00011")));
+    
+    assert(BitString("1111").lt_s(BitString("0000")));
+    assert(BitString("1000").lt_s(BitString("0000")));
+    assert(BitString("1000").lt_s(BitString("1001")));
+    assert(BitString("1000").lt_s(BitString("1111")));
+    
+    assert(!BitString("0000").lt_s(BitString("1111")));
+    assert(!BitString("0000").lt_s(BitString("1000")));
+    assert(!BitString("1001").lt_s(BitString("1000")));
+    assert(!BitString("1111").lt_s(BitString("1000")));
+    assert(!BitString("1111").lt_s(BitString("1111")));
+  });
+  
+  Test("le_s", [](){
+    assert(BitString("1111").le_s(BitString("0000")));
+    assert(BitString("11111").le_s(BitString("11111")));
+    assert(BitString("000000").le_s(BitString("000000")));
+  });
+  
   Test("concat", [](){
     assert(BitString("100").concat(BitString("0110")) == BitString("1000110"));
     assert(

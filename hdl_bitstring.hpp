@@ -340,6 +340,20 @@ namespace hdl {
       return lt_u(other) || (*this) == other;
     }
     
+    bool lt_s(const BitString& other) const {
+      ensure_same_width(other);
+      
+      if (at(_width - 1) == other.at(_width - 1)) {
+        return lt_u(other);
+      } else {
+        return at(_width - 1) && !other.at(_width - 1);
+      }
+    }
+    
+    bool le_s(const BitString& other) const {
+      return lt_s(other) || (*this) == other;
+    }
+    
     BitString concat(const BitString& other) const {
       size_t target = _width + other._width;
       return other.zero_extend(target) | (zero_extend(target) << other._width);
