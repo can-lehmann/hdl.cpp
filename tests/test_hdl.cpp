@@ -189,9 +189,81 @@ void test_ops() {
   });
 }
 
+void test_sim() {
+  Test("Counter Simulation", [](){
+    hdl::Module module("top");
+    hdl::Value* clock = module.input("clock", 1);
+    hdl::Value* initial = module.constant(hdl::BitString(32));
+    hdl::Reg* counter = module.reg(initial, clock);
+    counter->next = module.op(hdl::Op::Kind::Add, {
+      counter,
+      module.constant(hdl::BitString::from_uint(uint32_t(1)))
+    });
+    module.output("counter", counter);
+    
+    {
+      hdl::sim::Simulation sim(module);
+      bool clock = false;
+      for (size_t iter = 0; iter < 100; iter++) {
+        sim.update({hdl::BitString::from_bool(clock)});
+        assert(sim.outputs()[0].as_uint64() == iter / 2)
+        clock = !clock;
+      }
+    }
+  });
+  
+  Test("Memory Simulation", [](){
+    hdl::Module module("top");
+    hdl::Value* clock = module.input("clock", 1);
+    hdl::Value* address = module.input("address", 5);
+    hdl::Value* write_value = module.input("write_value", 64);
+    hdl::Value* write_enable = module.input("write_enable", 1);
+    hdl::Memory* memory = module.memory(64, 32, clock);
+    
+    module.output("read", memory->read(address));
+    memory->write(address, write_enable, write_value);
+    
+    {
+      hdl::sim::Simulation sim(module);
+      bool clock = false;
+      
+      struct MemOp {
+        bool is_write = false;
+        uint64_t address = 0;
+        uint64_t value = 0;
+      };
+      
+      std::vector<MemOp> ops = {
+        { true, 0, 123 },
+        { false, 0, 123 },
+        { false, 1, 0 },
+        { true, 1, 456 },
+        { false, 0, 123 },
+        { false, 1, 456 }
+      };
+      
+      for (MemOp op : ops) {
+        for (size_t iter = 0; iter < 2; iter++) {
+          sim.update({
+            hdl::BitString::from_bool(clock),
+            hdl::BitString::from_uint(op.address).truncate(address->width),
+            hdl::BitString::from_uint(op.value),
+            hdl::BitString::from_bool(op.is_write)
+          });
+          if (!op.is_write) {
+            assert(sim.outputs()[0].as_uint64() == op.value)
+          }
+          clock = !clock;
+        }
+      }
+    }
+  });
+}
+
 int main() {
   test_module();
   test_ops();
+  test_sim();
   
   return 0;
 }

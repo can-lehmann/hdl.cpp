@@ -218,6 +218,54 @@ struct std::hash<hdl::Op> {
 };
 
 namespace hdl {
+  struct Memory {
+    struct Write {
+      Value* address = nullptr;
+      Value* enable = nullptr;
+      Value* value = nullptr;
+      
+      Write(Value* _address, Value* _enable, Value* _value):
+        address(_address), enable(_enable), value(_value) {}
+    };
+    
+    struct Read : public Comb {
+      Memory* memory = nullptr;
+      Value* address = nullptr;
+      
+      Read(Memory* _memory, Value* _address):
+        Comb(_memory->width), memory(_memory), address(_address) {}
+    };
+    
+    const size_t width = 0;
+    const size_t size = 0;
+    Value* clock = nullptr;
+    std::vector<Write> writes;
+    std::vector<Read*> reads;
+    std::string name;
+    
+    Memory(size_t _width, size_t _size, Value* _clock):
+      width(_width), size(_size), clock(_clock) {}
+    
+    Memory(const Memory& other) = delete;
+    Memory& operator=(const Memory& other) = delete;
+    
+    ~Memory() {
+      for (Read* read : reads) {
+        delete read;
+      }
+    }
+    
+    void write(Value* address, Value* enable, Value* value) {
+      writes.emplace_back(address, enable, value);
+    }
+    
+    Read* read(Value* address) {
+      Read* read = new Read(this, address);
+      reads.push_back(read);
+      return read;
+    }
+  };
+  
   struct Output {
     std::string name;
     Value* value = nullptr;
@@ -268,7 +316,7 @@ namespace hdl {
         }
       }
       
-      void gc(std::set<Value*> reached) {
+      void gc(std::set<void*> reached) {
         std::unordered_set<Cell, CellHasher> nodes;
         for (const Cell& cell : _nodes) {
           if (reached.find(cell.node) == reached.end()) {
@@ -285,6 +333,7 @@ namespace hdl {
     Hashcons<Constant> _constants;
     Hashcons<Op> _ops;
     std::vector<Reg*> _regs;
+    std::vector<Memory*> _memories;
     std::vector<Input*> _inputs;
     std::vector<Output> _outputs;
   public:
@@ -295,6 +344,7 @@ namespace hdl {
     
     inline const std::string& name() const { return _name; }
     inline const std::vector<Reg*> regs() const { return _regs; }
+    inline const std::vector<Memory*> memories() const { return _memories; }
     inline const std::vector<Input*> inputs() const { return _inputs; }
     inline const std::vector<Output> outputs() const { return _outputs; }
     
@@ -313,6 +363,12 @@ namespace hdl {
       reg->next = reg;
       _regs.push_back(reg);
       return reg;
+    }
+    
+    Memory* memory(size_t width, size_t size, Value* clock) {
+      Memory* memory = new Memory(width, size, clock);
+      _memories.push_back(memory);
+      return memory;
     }
     
     Value* op(Op::Kind kind, const std::vector<Value*>& args) {
@@ -527,7 +583,20 @@ namespace hdl {
     }
     
   private:
-    void trace(Value* value, std::set<Value*>& reached) {
+    void trace(Memory* memory, std::set<void*>& reached) {
+      if (reached.find(memory) == reached.end()) {
+        reached.insert(memory);
+        
+        trace(memory->clock, reached);
+        for (const Memory::Write& write : memory->writes) {
+          trace(write.address, reached);
+          trace(write.enable, reached);
+          trace(write.value, reached);
+        }
+      }
+    }
+    
+    void trace(Value* value, std::set<void*>& reached) {
       if (reached.find(value) == reached.end()) {
         reached.insert(value);
         
@@ -539,12 +608,15 @@ namespace hdl {
           trace(reg->initial, reached);
           trace(reg->clock, reached);
           trace(reg->next, reached);
+        } else if (Memory::Read* read = dynamic_cast<Memory::Read*>(value)) {
+          trace(read->memory, reached);
+          trace(read->address, reached);
         }
       }
     }
   public:
     void gc() {
-      std::set<Value*> reached;
+      std::set<void*> reached;
       for (Output& output : _outputs) {
         trace(output.value, reached);
       }
@@ -558,6 +630,16 @@ namespace hdl {
         }
       }
       _regs = regs;
+      
+      std::vector<Memory*> memories;
+      for (Memory* memory : _memories) {
+        if (reached.find(memory) == reached.end()) {
+          delete memory;
+        } else {
+          memories.push_back(memory);
+        }
+      }
+      _memories = memories;
       
       _ops.gc(reached);
       _constants.gc(reached);
@@ -860,13 +942,35 @@ namespace hdl {
   
   namespace sim {
     class Simulation {
+    public:
+      struct MemoryData {
+        const Memory* memory = nullptr;
+        std::unordered_map<uint64_t, BitString> data;
+        
+        MemoryData() {}
+        MemoryData(const Memory* _memory): memory(_memory) {}
+        
+        BitString& operator[](uint64_t address) {
+          if (address >= memory->width) {
+            throw_error(Error,
+              "Memory access out of bounds: Attempt to access address " << address <<
+              " in memory of size " << memory->size
+            );
+          }
+          if (data.find(address) == data.end()) {
+            data[address] = BitString(memory->width);
+          }
+          return data[address];
+        }
+      };
     private:
       using Values = std::unordered_map<const Value*, BitString>;
       
       Module& _module;
       std::vector<BitString> _inputs;
+      std::unordered_map<const Value*, bool> _prev_clocks;
       std::vector<BitString> _regs;
-      std::vector<bool> _prev_clocks;
+      std::unordered_map<const Memory*, MemoryData> _memories;
       std::vector<BitString> _outputs;
       
       BitString eval(const Value* value, Values& values) {
@@ -887,6 +991,9 @@ namespace hdl {
             args[it] = &values.find(op->args[it])->second;
           }
           result = op->eval(args);
+        } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+          BitString address = eval(read->address, values);
+          result = _memories.at(read->memory)[address.as_uint64()];
         } else {
           throw Error("");
         }
@@ -920,7 +1027,6 @@ namespace hdl {
           _module(module),
           _inputs(module.inputs().size()),
           _regs(module.regs().size()),
-          _prev_clocks(module.regs().size()),
           _outputs(module.outputs().size()) {
         size_t it = 0;
         for (const Input* input : _module.inputs()) {
@@ -929,14 +1035,22 @@ namespace hdl {
         
         it = 0;
         for (const Reg* reg : _module.regs()) {
-          _prev_clocks[it] = false;
+          _prev_clocks[reg->clock] = false;
           _regs[it++] = BitString(reg->width);
         }
+        
+        it = 0;
+        for (const Memory* memory : _module.memories()) {
+          _prev_clocks[memory->clock] = false;
+          _memories[memory] = MemoryData(memory);
+        }
+        
         reset();
       }
       
       const std::vector<BitString>& inputs() const { return _inputs; };
       const std::vector<BitString>& regs() const { return _regs; };
+      const std::unordered_map<const Memory*, MemoryData>& memories() const { return _memories; };
       const std::vector<BitString>& outputs() const { return _outputs; };
       
       void reset() {
@@ -945,6 +1059,10 @@ namespace hdl {
         size_t it = 0;
         for (const Reg* reg : _module.regs()) {
           _regs[it++] = eval(reg->initial, values);
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          _memories[memory] = MemoryData(memory);
         }
       }
       
@@ -958,11 +1076,28 @@ namespace hdl {
         size_t it = 0;
         for (const Reg* reg : _module.regs()) {
           bool clock = eval(reg->clock, values)[0];
-          if (clock && !_prev_clocks[it]) {
+          if (clock && !_prev_clocks.at(reg->clock)) {
             _regs[it] = eval(reg->next, values);
           }
-          _prev_clocks[it] = clock;
           it++;
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          bool clock = eval(memory->clock, values)[0];
+          if (clock && !_prev_clocks.at(memory->clock)) {
+            for (const Memory::Write& write : memory->writes) {
+              bool enable = eval(write.enable, values)[0];
+              if (enable) {
+                uint64_t address = eval(write.address, values).as_uint64();
+                BitString value = eval(write.value, values);
+                _memories[memory][address] = value;
+              }
+            }
+          }
+        }
+        
+        for (auto& [value, prev] : _prev_clocks) {
+          prev = eval(value, values)[0];
         }
       }
     };
