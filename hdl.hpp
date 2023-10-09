@@ -256,6 +256,23 @@ namespace hdl {
     }
     
     void write(Value* address, Value* enable, Value* value) {
+      if (value->width != width) {
+        throw_error(Error,
+          "Unable to write value of width " << value->width <<
+          " to memory of width " << width
+        );
+      }
+      if (enable->width != 1) {
+        throw_error(Error,
+          "The memory write enable signal must have width " << 1 <<
+          " but got value of width " << enable->width
+        );
+      }
+      if (Constant* constant = dynamic_cast<Constant*>(enable)) {
+        if (constant->value.is_zero()) {
+          return;
+        }
+      }
       writes.emplace_back(address, enable, value);
     }
     
@@ -553,35 +570,6 @@ namespace hdl {
       return _constants[Constant(bit_string)];
     }
     
-    void usages(const Value* value, std::unordered_map<const Value*, size_t>& counts) const {
-      if (counts.find(value) != counts.end()) {
-        counts[value] += 1;
-        return;
-      }
-      
-      counts[value] = 1;
-      if (const Op* op = dynamic_cast<const Op*>(value)) {
-        for (const Value* arg : op->args) {
-          usages(arg, counts);
-        }
-      }
-    }
-    
-    std::unordered_map<const Value*, size_t> usages() const {
-      std::unordered_map<const Value*, size_t> counts;
-      for (const Reg* reg : _regs) {
-        usages(reg->initial, counts);
-        usages(reg->clock, counts);
-        usages(reg->next, counts);
-      }
-      
-      for (const Output& output : _outputs) {
-        usages(output.value, counts);
-      }
-      
-      return counts;
-    }
-    
   private:
     void trace(Memory* memory, std::set<void*>& reached) {
       if (reached.find(memory) == reached.end()) {
@@ -664,6 +652,48 @@ namespace hdl {
     private:
       Module& _module;
       std::unordered_map<const Value*, std::string> _names;
+      std::unordered_map<const Memory*, std::string> _memory_names;
+      std::unordered_map<const Value*, size_t> _counts;
+      
+      void count_usages(const Value* value) {
+        if (_counts.find(value) != _counts.end()) {
+          _counts[value] += 1;
+          return;
+        }
+        
+        _counts[value] = 1;
+        if (const Op* op = dynamic_cast<const Op*>(value)) {
+          for (const Value* arg : op->args) {
+            count_usages(arg);
+          }
+          if (op->kind == Op::Kind::Slice) {
+            count_usages(op->args[1]);
+          }
+        } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+          count_usages(read->address);
+        }
+      }
+      
+      void count_usages() {
+        for (const Reg* reg : _module.regs()) {
+          count_usages(reg->initial);
+          count_usages(reg->clock);
+          count_usages(reg->next);
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          count_usages(memory->clock);
+          for (const Memory::Write& write : memory->writes) {
+            count_usages(write.address);
+            count_usages(write.value);
+            count_usages(write.enable);
+          }
+        }
+        
+        for (const Output& output : _module.outputs()) {
+          count_usages(output.value);
+        }
+      }
       
       std::string print(std::ostream& stream, const Value* value, std::unordered_set<const Value*>& closed) const {
         if (closed.find(value) != closed.end()) {
@@ -703,7 +733,6 @@ namespace hdl {
             case Op::Kind::LeU: expr << "$unsigned(" << args[0] << ") <= $unsigned(" << args[1] << ")"; break;
             case Op::Kind::LeS: expr << "$signed(" << args[0] << ") <= $signed(" << args[1] << ")"; break;
             case Op::Kind::Concat: expr << '{' << args[0] << ',' << args[1] << '}'; break;
-            // TODO: Correctly count usages in Slice
             case Op::Kind::Slice: expr << args[0] << '[' << args[2] << '+' << args[1] << " - 1:" << args[1] << ']'; break;
             case Op::Kind::Shl: expr << args[0] << " << " << args[1]; break;
             case Op::Kind::ShrU: expr << args[0] << " >> " << args[1]; break;
@@ -711,6 +740,9 @@ namespace hdl {
             case Op::Kind::Select: expr << args[0] << " ? " << args[1] << " : " << args[2]; break;
           }
           expr << ')';
+        } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+          std::string address = print(stream, read->address, closed);
+          expr << '(' << _memory_names.at(read->memory) << '[' << address << "])";
         } else {
           throw Error("Unreachable: Invalid value");
         }
@@ -730,12 +762,16 @@ namespace hdl {
           _names[reg] = "reg" + std::to_string(_names.size());
         }
         
+        for (const Memory* memory : _module.memories()) {
+          _memory_names[memory] = "memory" + std::to_string(_names.size());
+        }
+        
         for (const Input* input : _module.inputs()) {
           _names[input] = input->name;
         }
         
-        std::unordered_map<const Value*, size_t> counts = _module.usages();
-        for (const auto& [value, count] : counts) {
+        count_usages();
+        for (const auto& [value, count] : _counts) {
           if (count > 1 &&
               _names.find(value) == _names.end() &&
               dynamic_cast<const Constant*>(value) == nullptr) {
@@ -770,6 +806,10 @@ namespace hdl {
           closed.insert(reg);
         }
         
+        for (const Memory* memory : _module.memories()) {
+          stream << "  reg" << Width(memory->width) << _memory_names.at(memory) << " [" << memory->size << "];\n";
+        }
+        
         for (const Output& output : _module.outputs()) {
           std::string value = print(stream, output.value, closed);
           stream << "  assign " << output.name << " = " << value << ";\n";
@@ -784,6 +824,21 @@ namespace hdl {
           stream << "  initial " << name << " = " << initial << ";\n";
           stream << "  always @(posedge " << clock << ")\n";
           stream << "    " << name << " <= " << next << ";\n";
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          const std::string& name = _memory_names.at(memory);
+          std::string clock = print(stream, memory->clock, closed);
+          
+          for (const Memory::Write& write : memory->writes) {
+            std::string enable = print(stream, write.enable, closed);
+            std::string address = print(stream, write.address, closed);
+            std::string value = print(stream, write.value, closed);
+            
+            stream << "  always @(posedge " << clock << ")\n";
+            stream << "    if (" << enable << ")\n";
+            stream << "      " << name << "[" << address << "] <= " << value << ";\n";
+          }
         }
         
         stream << "\n";
@@ -809,16 +864,27 @@ namespace hdl {
       struct Context {
         std::ostream& stream;
         std::unordered_map<const Value*, size_t> ids;
+        std::unordered_map<const Memory*, size_t> memory_ids;
         size_t id_count = 0;
         
         Context(std::ostream& _stream): stream(_stream) {}
         
         size_t alloc() { return id_count++; }
+        
         size_t alloc(const Value* value) {
           size_t id = alloc();
           ids[value] = id;
           return id;
         }
+        
+        size_t alloc(const Memory* value) {
+          size_t id = alloc();
+          memory_ids[value] = id;
+          return id;
+        }
+        
+        size_t operator[](const Value* value) const { return ids.at(value); }
+        size_t operator[](const Memory* memory) const { return memory_ids.at(memory); }
       };
       
       static const char** const arg_names(Op::Kind kind) {
@@ -852,7 +918,7 @@ namespace hdl {
         }
         
         if (ctx.ids.find(value) != ctx.ids.end()) {
-          return ctx.ids.at(value);
+          return ctx[value];
         }
         
         size_t id = ctx.alloc(value);
@@ -861,6 +927,8 @@ namespace hdl {
           ctx.stream << "  n" << id << " [label=" << Op::KIND_NAMES[(size_t)op->kind] << "];\n";
         } else if (const Input* op = dynamic_cast<const Input*>(value)) {
           ctx.stream << "  n" << id << " [shape=box, label=\"" << op->name << "\"];\n";
+        } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+          ctx.stream << "  n" << id << " [label=Read];\n";
         } else {
           ctx.stream << "  n" << id << ";\n";
         }
@@ -877,28 +945,47 @@ namespace hdl {
             ctx.stream << ";\n";
             it++;
           }
+        } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+          size_t address_id = print(read->address, ctx);
+          ctx.stream << "  n" << address_id << " -> n" << id << ";\n";
+          ctx.stream << "  n" << ctx[read->memory] << " -> n" << id << ";\n";
         }
         
         return id;
       }
       
-      void declare_regs(char prefix, Context& ctx) const {
+      void write_name(const Reg* reg, Context& ctx) const {
+        if (reg->name.size() == 0) {
+          ctx.stream << "reg" << ctx[reg];
+        } else {
+          ctx.stream << reg->name;
+        }
+      }
+      
+      void write_name(const Memory* memory, Context& ctx) const {
+        if (memory->name.size() == 0) {
+          ctx.stream << "memory" << ctx[memory];
+        } else {
+          ctx.stream << memory->name;
+        }
+        ctx.stream << "[" << memory->size << "]";
+      }
+      
+      template <class T>
+      void declare(char prefix, const std::vector<T*>& objects, Context& ctx) const {
         if (_split_regs) {
           ctx.stream << "  { rank=same;\n";
         }
-        for (const Reg* reg : _module.regs()) {
-          ctx.stream << "  " << prefix << ctx.ids.at(reg) << " [shape=box, label=\"";
-          if (reg->name.size() == 0) {
-            ctx.stream << "reg" << ctx.ids.at(reg);
-          } else {
-            ctx.stream << reg->name;
-          }
+        for (const T* object : objects) {
+          ctx.stream << "  " << prefix << ctx[object] << " [shape=box, label=\"";
+          write_name(object, ctx);
           ctx.stream << "\"];\n";
         }
         if (_split_regs) {
           ctx.stream << "  }\n";
         }
       }
+      
     public:
       Printer(Module& module): _module(module) {}
       
@@ -911,21 +998,48 @@ namespace hdl {
           ctx.alloc(reg);
         }
         
-        declare_regs('n', ctx);
+        for (const Memory* memory : _module.memories()) {
+          ctx.alloc(memory);
+        }
+        
+        declare('n', _module.regs(), ctx);
+        declare('n', _module.memories(), ctx);
         if (_split_regs) {
-          declare_regs('r', ctx);
+          declare('r', _module.regs(), ctx);
+          declare('m', _module.memories(), ctx);
         }
         
         for (const Reg* reg : _module.regs()) {
           size_t initial_id = print(reg->initial, ctx);
-          stream << "  n" << initial_id << " -> " << (_split_regs ? 'r' : 'n') << ctx.ids.at(reg) << " [label=initial];\n";
+          stream << "  n" << initial_id << " -> " << (_split_regs ? 'r' : 'n') << ctx[reg] << " [label=initial];\n";
           if (_show_clocks) {
             size_t clock_id = print(reg->clock, ctx);
-            stream << "  n" << clock_id << " -> " << (_split_regs ? 'r' : 'n') << ctx.ids.at(reg) << " [label=clock];\n";
+            stream << "  n" << clock_id << " -> " << (_split_regs ? 'r' : 'n') << ctx[reg] << " [label=clock];\n";
           }
           if (reg->next != nullptr) {
             size_t next_id = print(reg->next, ctx);
-            stream << "  n" << next_id << " -> " << (_split_regs ? 'r' : 'n') << ctx.ids.at(reg) << " [label=next];\n";
+            stream << "  n" << next_id << " -> " << (_split_regs ? 'r' : 'n') << ctx[reg] << " [label=next];\n";
+          }
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          if (_show_clocks) {
+            size_t clock_id = print(memory->clock, ctx);
+            stream << "  n" << clock_id << " -> " << (_split_regs ? 'm' : 'n') << ctx[memory] << " [label=clock];\n";
+          }
+          
+          for (const Memory::Write& write : memory->writes) {
+            size_t write_id = ctx.alloc();
+            ctx.stream << "  w" << write_id << " [label=Write];\n";
+            
+            size_t address_id = print(write.address, ctx);
+            stream << "  n" << address_id << " -> w" << write_id << " [label=address];\n";
+            size_t value_id = print(write.value, ctx);
+            stream << "  n" << value_id << " -> w" << write_id << " [label=value];\n";
+            size_t enable_id = print(write.enable, ctx);
+            stream << "  n" << enable_id << " -> w" << write_id << " [label=enable];\n";
+            
+            stream << "  w" << write_id << " -> " << (_split_regs ? 'm' : 'n') << ctx[memory] << ";\n";
           }
         }
         
@@ -951,11 +1065,12 @@ namespace hdl {
         MemoryData(const Memory* _memory): memory(_memory) {}
         
         BitString& operator[](uint64_t address) {
-          if (address >= memory->width) {
-            throw_error(Error,
-              "Memory access out of bounds: Attempt to access address " << address <<
-              " in memory of size " << memory->size
-            );
+          if (address >= memory->size) {
+            //throw_error(Error,
+            //  "Memory access out of bounds: Attempt to access address " << address <<
+            //  " in memory of size " << memory->size
+            //);
+            address %= memory->size;
           }
           if (data.find(address) == data.end()) {
             data[address] = BitString(memory->width);
@@ -996,6 +1111,16 @@ namespace hdl {
           result = _memories.at(read->memory)[address.as_uint64()];
         } else {
           throw Error("");
+        }
+        
+        if (result.width() != value->width) {
+          std::string name = "value";
+          if (const Op* op = dynamic_cast<const Op*>(value)) {
+            name = Op::KIND_NAMES[size_t(op->kind)];
+          } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+            name = "read";
+          }
+          throw_error(Error, "Width mismatch: " << name << " returned BitString of width " << result.width() << ", but expected width " << value->width);
         }
         
         values[value] = result;
