@@ -316,6 +316,12 @@ namespace hdl {
     public:
       Hashcons() {}
       
+      Hashcons(const Hashcons<T>& other) = delete;
+      Hashcons& operator=(const Hashcons<T>& other) = delete;
+      
+      Hashcons(Hashcons<T>&& other):
+        _nodes(std::move(other._nodes)) {}
+      
       ~Hashcons() {
         for (const Cell& cell : _nodes) {
           delete cell.node;
@@ -358,6 +364,15 @@ namespace hdl {
     
     Module(const Module& other) = delete;
     Module& operator=(const Module& other) = delete;
+    
+    Module(Module&& other):
+      _name(std::move(other._name)),
+      _constants(std::move(other._constants)),
+      _ops(std::move(other._ops)),
+      _regs(std::move(other._regs)),
+      _memories(std::move(other._memories)),
+      _inputs(std::move(other._inputs)),
+      _outputs(std::move(other._outputs)) {}
     
     inline const std::string& name() const { return _name; }
     inline const std::vector<Reg*> regs() const { return _regs; }
