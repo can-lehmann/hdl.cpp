@@ -375,6 +375,12 @@ namespace hdl {
       return value;
     }
     
+    bool as_bool() const {
+      if (_width != 1) {
+        throw_error(Error, "Expected BitString to be of width 1, but got width " << _width);
+      }
+      return at(0);
+    }
   };
   
   std::ostream& operator<<(std::ostream& stream, const BitString& bit_string) {

@@ -1112,15 +1112,23 @@ namespace hdl {
         if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
           result = constant->value;
         } else if (const Op* op = dynamic_cast<const Op*>(value)) {
-          for (size_t it = 0; it < op->args.size(); it++) {
-            eval(op->args[it], values);
+          if (op->kind == Op::Kind::Select) {
+            if (eval(op->args[0], values).at(0)) {
+              result = eval(op->args[1], values);
+            } else {
+              result = eval(op->args[2], values);
+            }
+          } else {
+            for (size_t it = 0; it < op->args.size(); it++) {
+              eval(op->args[it], values);
+            }
+            
+            const BitString* args[Op::MAX_ARG_COUNT] = {nullptr};
+            for (size_t it = 0; it < op->args.size(); it++) {
+              args[it] = &values.at(op->args[it]);
+            }
+            result = op->eval(args);
           }
-          
-          const BitString* args[Op::MAX_ARG_COUNT] = {nullptr};
-          for (size_t it = 0; it < op->args.size(); it++) {
-            args[it] = &values.find(op->args[it])->second;
-          }
-          result = op->eval(args);
         } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
           BitString address = eval(read->address, values);
           result = _memories.at(read->memory)[address.as_uint64()];
@@ -1192,6 +1200,16 @@ namespace hdl {
       const std::vector<BitString>& regs() const { return _regs; };
       const std::unordered_map<const Memory*, MemoryData>& memories() const { return _memories; };
       const std::vector<BitString>& outputs() const { return _outputs; };
+      
+      const BitString& find_output(const std::string& name) const {
+        for (size_t it = 0; it < _outputs.size(); it++) {
+          if (_module.outputs()[it].name == name) {
+            return _outputs[it];
+          }
+        }
+        
+        throw_error(Error, "Output " << name << " not found");
+      }
       
       void reset() {
         Values values = eval();
