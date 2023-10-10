@@ -9,7 +9,7 @@ using Test = unittest::Test;
 #define assert(cond) unittest_assert(cond)
 
 void test_module() {
-  Test("Constant Hashcons", [&](){
+  Test("Constant Hashcons").run([&](){
     hdl::Module module("top");
     
     assert(module.constant(hdl::BitString("1010")) == module.constant(hdl::BitString("1010")));
@@ -19,7 +19,7 @@ void test_module() {
     assert(module.constant(hdl::BitString("0")) != module.constant(hdl::BitString("00")));
   });
   
-  Test("Operator Hashcons", [&](){
+  Test("Operator Hashcons").run([&](){
     hdl::Module module("top");
     
     hdl::Value* a = module.input("a", 32);
@@ -31,7 +31,7 @@ void test_module() {
     );
   });
   
-  Test("Garbage Collection", [&](){
+  Test("Garbage Collection").run([&](){
     hdl::Module module("top");
     
     hdl::Value* clock = module.input("clock", 1);
@@ -66,7 +66,7 @@ void test_ops() {
   hdl::Value* b = module.input("b", 32);
   hdl::Value* cond = module.input("cond", 1);
   
-  Test("Op::Kind::And", [&](){
+  Test("Op::Kind::And").run([&](){
     assert(module.op(hdl::Op::Kind::And, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::And, {a, a}) == a);
@@ -76,7 +76,7 @@ void test_ops() {
     assert(module.op(hdl::Op::Kind::And, {ones, a}) == a);
   });
   
-  Test("Op::Kind::Or", [&](){
+  Test("Op::Kind::Or").run([&](){
     assert(module.op(hdl::Op::Kind::Or, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Or, {a, a}) == a);
@@ -86,13 +86,13 @@ void test_ops() {
     assert(module.op(hdl::Op::Kind::Or, {ones, a}) == ones);
   });
   
-  Test("Op::Kind::Xor", [&](){
+  Test("Op::Kind::Xor").run([&](){
     assert(module.op(hdl::Op::Kind::Xor, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Xor, {a, a}) == zero);
   });
   
-  Test("Op::Kind::Not", [&](){
+  Test("Op::Kind::Not").run([&](){
     assert(module.op(hdl::Op::Kind::Not, {a})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Not, {module.op(hdl::Op::Kind::Not, {a})}) == a);
@@ -100,24 +100,24 @@ void test_ops() {
     assert(module.op(hdl::Op::Kind::Not, {ones}) == zero);
   });
   
-  Test("Op::Kind::Add", [&](){
+  Test("Op::Kind::Add").run([&](){
     assert(module.op(hdl::Op::Kind::Add, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Add, {a, zero}) == a);
     assert(module.op(hdl::Op::Kind::Add, {zero, a}) == a);
   });
   
-  Test("Op::Kind::Sub", [&](){
+  Test("Op::Kind::Sub").run([&](){
     assert(module.op(hdl::Op::Kind::Sub, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Sub, {a, zero}) == a);
     assert(module.op(hdl::Op::Kind::Sub, {a, a}) == zero);
   });
   
-  Test("Op::Kind::Mul", [&](){
+  Test("Op::Kind::Mul").run([&](){
   });
   
-  Test("Op::Kind::Eq", [&](){
+  Test("Op::Kind::Eq").run([&](){
     assert(module.op(hdl::Op::Kind::Eq, {a, b})->width == 1);
     
     assert(module.op(hdl::Op::Kind::Eq, {a, a}) == bool_true);
@@ -125,54 +125,54 @@ void test_ops() {
     assert(module.op(hdl::Op::Kind::Eq, {zero, ones}) == bool_false);
   });
   
-  Test("Op::Kind::LtU", [&](){
+  Test("Op::Kind::LtU").run([&](){
     assert(module.op(hdl::Op::Kind::LtU, {a, b})->width == 1);
     
     assert(module.op(hdl::Op::Kind::LtU, {a, a}) == bool_false);
     assert(module.op(hdl::Op::Kind::LtU, {a, zero}) == bool_false);
   });
   
-  Test("Op::Kind::LtS", [&](){
+  Test("Op::Kind::LtS").run([&](){
     assert(module.op(hdl::Op::Kind::LtS, {a, b})->width == 1);
     
     assert(module.op(hdl::Op::Kind::LtS, {a, a}) == bool_false);
   });
   
-  Test("Op::Kind::LeU", [&](){
+  Test("Op::Kind::LeU").run([&](){
     assert(module.op(hdl::Op::Kind::LeU, {a, b})->width == 1);
     
     assert(module.op(hdl::Op::Kind::LeU, {a, a}) == bool_true);
     assert(module.op(hdl::Op::Kind::LeU, {zero, a}) == bool_true);
   });
   
-  Test("Op::Kind::LeS", [&](){
+  Test("Op::Kind::LeS").run([&](){
     assert(module.op(hdl::Op::Kind::LeS, {a, b})->width == 1);
     
     assert(module.op(hdl::Op::Kind::LeS, {a, a}) == bool_true);
   });
   
-  Test("Op::Kind::Concat", [&](){
+  Test("Op::Kind::Concat").run([&](){
     assert(module.op(hdl::Op::Kind::Concat, {a, b})->width == 64);
   });
   
-  Test("Op::Kind::Slice", [&](){
+  Test("Op::Kind::Slice").run([&](){
   });
   
-  Test("Op::Kind::Shl", [&](){
+  Test("Op::Kind::Shl").run([&](){
     assert(module.op(hdl::Op::Kind::Shl, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Shl, {a, zero}) == a);
     assert(module.op(hdl::Op::Kind::Shl, {zero, a}) == zero);
   });
   
-  Test("Op::Kind::ShrU", [&](){
+  Test("Op::Kind::ShrU").run([&](){
     assert(module.op(hdl::Op::Kind::ShrU, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::ShrU, {a, zero}) == a);
     assert(module.op(hdl::Op::Kind::ShrU, {zero, a}) == zero);
   });
   
-  Test("Op::Kind::ShrS", [&](){
+  Test("Op::Kind::ShrS").run([&](){
     assert(module.op(hdl::Op::Kind::ShrS, {a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::ShrS, {a, zero}) == a);
@@ -180,7 +180,7 @@ void test_ops() {
     assert(module.op(hdl::Op::Kind::ShrS, {ones, a}) == ones);
   });
   
-  Test("Op::Kind::Select", [&](){
+  Test("Op::Kind::Select").run([&](){
     assert(module.op(hdl::Op::Kind::Select, {cond, a, b})->width == 32);
     
     assert(module.op(hdl::Op::Kind::Select, {bool_true, a, b}) == a);
@@ -190,7 +190,7 @@ void test_ops() {
 }
 
 void test_sim() {
-  Test("Counter Simulation", [](){
+  Test("Counter Simulation").run([](){
     hdl::Module module("top");
     hdl::Value* clock = module.input("clock", 1);
     hdl::Value* initial = module.constant(hdl::BitString(32));
@@ -212,7 +212,7 @@ void test_sim() {
     }
   });
   
-  Test("Memory Simulation", [](){
+  Test("Memory Simulation").run([](){
     hdl::Module module("top");
     hdl::Value* clock = module.input("clock", 1);
     hdl::Value* address = module.input("address", 5);
