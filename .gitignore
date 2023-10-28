@@ -6,5 +6,6 @@ examples/graph.svg
 examples/proof.cnf
 examples/hdl_proof
 examples/hdl_dsl
+examples/hdl_proof_z3
 tests/test_hdl
 tests/test_bitstring
