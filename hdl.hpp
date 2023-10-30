@@ -380,6 +380,15 @@ namespace hdl {
     inline const std::vector<Input*> inputs() const { return _inputs; }
     inline const std::vector<Output> outputs() const { return _outputs; }
     
+    const Output& find_output(const std::string& name) const {
+      for (const Output& output : _outputs) {
+        if (output.name == name) {
+          return output;
+        }
+      }
+      throw_error(Error, "Unable to find output \"" << name << "\"");
+    }
+    
     Input* input(const std::string& name, size_t width) {
       Input* input = new Input(name, width);
       _inputs.push_back(input);

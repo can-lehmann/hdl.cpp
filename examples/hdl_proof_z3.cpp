@@ -18,18 +18,20 @@ int main() {
     })
   });
   
-  hdl::proof::z3::Builder builder;
+  z3::context context;
+  z3::solver solver(context);
+  hdl::proof::z3::Builder builder(context);
   builder.free(a);
   builder.free(b);
-  builder.require(eq, hdl::BitString::from_bool(false));
+  builder.require(solver, eq, hdl::BitString::from_bool(false));
   
-  std::cout << builder.to_smt2() << std::endl;
+  std::cout << solver.to_smt2() << std::endl;
   
-  if (builder.satisfiable()) {
-    std::cout << "Counter-Example" << std::endl;
-    std::cout << "a = " << builder.interp(a) << std::endl;
-    std::cout << "b = " << builder.interp(b) << std::endl;
-    std::cout << "eq = " << builder.interp(eq) << std::endl;
+  if (solver.check() == z3::sat) {
+    std::cout << "Counterexample" << std::endl;
+    std::cout << "a = " << builder.interp(solver, a) << std::endl;
+    std::cout << "b = " << builder.interp(solver, b) << std::endl;
+    std::cout << "eq = " << builder.interp(solver, eq) << std::endl;
   } else {
     std::cout << "Proven" << std::endl;
   }

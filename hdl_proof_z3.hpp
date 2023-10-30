@@ -19,47 +19,57 @@ namespace hdl {
       
       class Builder {
       private:
-        ::z3::context context;
-        ::z3::solver solver;
-        std::map<const Value*, ::z3::expr> values;
+        ::z3::context& _context;
+        std::map<const Value*, ::z3::expr> _values;
+        std::map<const Memory*, ::z3::expr> _memories;
         
-        ::z3::expr bv_val(const BitString& bit_string) {
+        ::z3::expr bool2bv(::z3::expr expr) {
+          return ::z3::ite(expr,
+            build(BitString::from_bool(true)),
+            build(BitString::from_bool(false))
+          );
+        }
+      public:
+        Builder(::z3::context& context): _context(context) {}
+        
+        void free(const Value* value) {
+          std::ostringstream name;
+          name << "value" << _values.size();
+          _values.emplace(value, _context.bv_const(name.str().c_str(), value->width));
+        }
+        
+        void define(const Value* value, ::z3::expr expr) {
+          // TODO: Check sort
+          _values.emplace(value, expr);
+        }
+        
+        void define(const Memory* memory, ::z3::expr expr) {
+          // TODO: Check sort
+          _memories.emplace(memory, expr);
+        }
+        
+        ::z3::expr build(const BitString& bit_string) {
           bool bits[bit_string.width()];
           for (size_t it = 0; it < bit_string.width(); it++) {
             bits[it] = bit_string[it];
           }
-          return context.bv_val(bit_string.width(), &bits[0]);
+          return _context.bv_val(bit_string.width(), &bits[0]);
         }
         
-        ::z3::expr bool2bv(::z3::expr expr) {
-          return ::z3::ite(expr,
-            bv_val(BitString::from_bool(true)),
-            bv_val(BitString::from_bool(false))
-          );
-        }
-      public:
-        Builder(): context(), solver(context) {}
-        
-        void free(const Value* value) {
-          std::ostringstream name;
-          name << "value" << values.size();
-          values.emplace(value, context.bv_const(name.str().c_str(), value->width));
-        }
-        
-        void build(const Value* value) {
-          if (values.find(value) != values.end()) {
-            return;
+        ::z3::expr build(const Value* value) {
+          if (_values.find(value) != _values.end()) {
+            return _values.at(value);
           }
           
           std::optional<::z3::expr> expr;
           if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
-            expr = bv_val(constant->value);
+            expr = build(constant->value);
           } else if (const Op* op = dynamic_cast<const Op*>(value)) {
             for (const Value* arg : op->args) {
               build(arg);
             }
             
-            #define arg(index) values.at(op->args[index])
+            #define arg(index) _values.at(op->args[index])
             
             switch (op->kind) {
               case Op::Kind::And: expr = arg(0) & arg(1); break;
@@ -83,26 +93,25 @@ namespace hdl {
             }
             
             #undef arg
+          } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+            // TODO: Check bounds
+            ::z3::expr address = ::z3::bv2int(build(read->address), false);
+            expr = _memories.at(read->memory)[address];
           } else {
-            throw Error("");
+            throw Error("Unable to build z3::expr for value");
           }
           
-          values.emplace(value, expr.value());
+          _values.emplace(value, expr.value());
+          return expr.value();
         }
         
-        void require(const Value* value, const BitString& string) {
-          build(value);
-          
-          solver.add(values.at(value) == bv_val(string));
+        void require(::z3::solver& solver, const Value* value, const BitString& string) {
+          solver.add(build(value) == build(string));
         }
         
-        bool satisfiable() {
-          return solver.check() != ::z3::unsat;
-        }
-        
-        BitString interp(const Value* value) {
+        BitString interp(::z3::solver& solver, const Value* value) {
           auto model = solver.get_model();
-          auto numeral = model.eval(values.at(value), true);
+          auto numeral = model.eval(_values.at(value), true);
           BitString bit_string(numeral.get_sort().bv_size());
           for (size_t it = 0; it < bit_string.width(); it++) {
             switch (model.eval(numeral.bit2bool(0), true).bool_value()) {
@@ -112,10 +121,6 @@ namespace hdl {
             }
           }
           return bit_string;
-        }
-        
-        std::string to_smt2() {
-          return solver.to_smt2();
         }
       };
       

@@ -282,6 +282,10 @@ namespace hdl {
       return (_data.back() & mask) == (other._data.back() & mask);
     }
     
+    inline bool operator!=(const BitString& other) const {
+      return !(*this == other);
+    }
+    
     bool is_zero() const {
       for (size_t it = 0; it + 1 < _data.size(); it++) {
         if (_data[it] != 0) {
