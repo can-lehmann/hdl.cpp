@@ -37,8 +37,8 @@ namespace hdl {
     using DoubleWord = uint64_t;
     static constexpr const size_t WORD_WIDTH = sizeof(Word) * 8;
     
-    std::vector<Word> _data;
     size_t _width = 0;
+    std::vector<Word> _data;
     
     static size_t word_count(size_t width) {
       return width / WORD_WIDTH + (width % WORD_WIDTH == 0 ? 0 : 1);
@@ -208,9 +208,6 @@ namespace hdl {
   public:
     BitString shr_s(size_t shift) const {
       BitString result = shr_u(shift);
-      
-      size_t inner_shift = shift % WORD_WIDTH;
-      size_t outer_shift = shift / WORD_WIDTH;
       
       if (at(_width - 1)) {
         result.fill_upper(shift >= _width ? 0 : _width - shift);
