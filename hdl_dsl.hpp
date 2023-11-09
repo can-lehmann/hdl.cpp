@@ -111,7 +111,11 @@ namespace hdl {
     class Reg: public T {
     private:
       static hdl::Value* create_register(const T& initial) {
-        return initial.module().reg(initial.value(), nullptr);
+        hdl::Constant* const_initial = dynamic_cast<hdl::Constant*>(initial.value());
+        if (const_initial == nullptr) {
+          throw Error("Register initializer must be constant");
+        }
+        return initial.module().reg(const_initial->value, nullptr);
       }
       
       static hdl::Value* create_register() {

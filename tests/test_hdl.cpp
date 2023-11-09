@@ -51,14 +51,14 @@ void test_module() {
     hdl::Value* b = module.input("b", 32);
     
     hdl::Value* and_op = module.op(hdl::Op::Kind::And, {a, b});
-    module.reg(module.constant(hdl::BitString(32)), clock)->next = and_op;
+    module.reg(hdl::BitString(32), clock)->next = and_op;
     assert(module.regs().size() == 1);
     
     module.gc();
     assert(module.regs().size() == 0);
     
     and_op = module.op(hdl::Op::Kind::And, {a, b});
-    hdl::Reg* reg = module.reg(module.constant(hdl::BitString(32)), clock);
+    hdl::Reg* reg = module.reg(hdl::BitString(32), clock);
     reg->next = and_op;
     module.output("c", reg);
     assert(module.regs().size() == 1);
@@ -205,8 +205,7 @@ void test_sim() {
   Test("Counter Simulation").run([](){
     hdl::Module module("top");
     hdl::Value* clock = module.input("clock", 1);
-    hdl::Value* initial = module.constant(hdl::BitString(32));
-    hdl::Reg* counter = module.reg(initial, clock);
+    hdl::Reg* counter = module.reg(hdl::BitString(32), clock);
     counter->next = module.op(hdl::Op::Kind::Add, {
       counter,
       module.constant(hdl::BitString::from_uint(uint32_t(1)))

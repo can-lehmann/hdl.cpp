@@ -49,13 +49,13 @@ namespace hdl {
   };
   
   struct Reg: public Value {
-    Value* initial = nullptr;
+    BitString initial;
     Value* clock = nullptr;
     Value* next = nullptr;
     std::string name;
     
-    Reg(Value* _initial, Value* _clock):
-      Value(_initial->width), initial(_initial), clock(_clock) {}
+    Reg(const BitString& _initial, Value* _clock):
+      Value(_initial.width()), initial(_initial), clock(_clock) {}
   };
   
   struct Comb: public Value { using Value::Value; };
@@ -413,7 +413,7 @@ namespace hdl {
       _outputs.push_back(Output { name, value });
     }
     
-    Reg* reg(Value* initial, Value* clock) {
+    Reg* reg(const BitString& initial, Value* clock) {
       Reg* reg = new Reg(initial, clock);
       reg->next = reg;
       _regs.push_back(reg);
@@ -670,7 +670,6 @@ namespace hdl {
             trace(arg, reached);
           }
         } else if (Reg* reg = dynamic_cast<Reg*>(value)) {
-          trace(reg->initial, reached);
           trace(reg->clock, reached);
           trace(reg->next, reached);
         } else if (Memory::Read* read = dynamic_cast<Memory::Read*>(value)) {
@@ -753,7 +752,6 @@ namespace hdl {
       
       void count_usages() {
         for (const Reg* reg : _module.regs()) {
-          count_usages(reg->initial);
           count_usages(reg->clock);
           count_usages(reg->next);
         }
@@ -889,7 +887,7 @@ namespace hdl {
         }
         
         for (const Reg* reg : _module.regs()) {
-          stream << "  reg " << Width(reg->width) << _names.at(reg) << ";\n";
+          stream << "  reg " << Width(reg->width) << _names.at(reg) << " = " << reg->initial << ";\n";
           closed.insert(reg);
         }
         
@@ -903,12 +901,10 @@ namespace hdl {
         }
         
         for (const Reg* reg : _module.regs()) {
-          std::string initial = print(stream, reg->initial, closed);
           std::string clock = print(stream, reg->clock, closed);
           std::string next = print(stream, reg->next, closed);
           const std::string& name = _names.at(reg);
           
-          stream << "  initial " << name << " = " << initial << ";\n";
           stream << "  always @(posedge " << clock << ")\n";
           stream << "    " << name << " <= " << next << ";\n";
         }
@@ -1097,8 +1093,6 @@ namespace hdl {
         }
         
         for (const Reg* reg : _module.regs()) {
-          size_t initial_id = print(reg->initial, ctx);
-          stream << "  n" << initial_id << " -> " << (_split_regs ? 'r' : 'n') << ctx[reg] << " [label=initial];\n";
           if (_show_clocks) {
             size_t clock_id = print(reg->clock, ctx);
             stream << "  n" << clock_id << " -> " << (_split_regs ? 'r' : 'n') << ctx[reg] << " [label=clock];\n";
@@ -1284,11 +1278,9 @@ namespace hdl {
       }
       
       void reset() {
-        Values values = eval();
-        
         size_t it = 0;
         for (const Reg* reg : _module.regs()) {
-          _regs[it++] = eval(reg->initial, values);
+          _regs[it++] = reg->initial;
         }
         
         for (const Memory* memory : _module.memories()) {

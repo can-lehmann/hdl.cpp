@@ -24,7 +24,7 @@ Here is an example of a 4 bit counter:
 hdl::Module module("top");
 
 hdl::Value* clock = module.input("clock", 1);
-hdl::Reg* counter = module.reg(module.constant(hdl::BitString("0000")), clock);
+hdl::Reg* counter = module.reg(hdl::BitString("0000"), clock);
 
 counter->next = module.op(hdl::Op::Kind::Add, {
   counter,

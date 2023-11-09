@@ -20,7 +20,7 @@ int main() {
   hdl::Module module("top");
   
   hdl::Value* clock = module.input("clock", 1);
-  hdl::Reg* counter = module.reg(module.constant(hdl::BitString("0000")), clock);
+  hdl::Reg* counter = module.reg(hdl::BitString("0000"), clock);
   
   counter->next = module.op(hdl::Op::Kind::Select, {
     module.op(hdl::Op::Kind::Eq, {
