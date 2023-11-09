@@ -81,14 +81,7 @@ namespace hdl {
       Select
     };
     
-    static constexpr const char* KIND_NAMES[] = {
-      "And", "Or", "Xor", "Not",
-      "Add", "Sub", "Mul",
-      "Eq", "LtU", "LtS", "LeU", "LeS",
-      "Concat", "Slice",
-      "Shl", "ShrU", "ShrS",
-      "Select"
-    };
+    static const char* KIND_NAMES[];
     
     static constexpr const size_t MAX_ARG_COUNT = 3;
     
@@ -206,6 +199,15 @@ namespace hdl {
       
       return result;
     }
+  };
+  
+  const char* Op::KIND_NAMES[] = {
+    "And", "Or", "Xor", "Not",
+    "Add", "Sub", "Mul",
+    "Eq", "LtU", "LtS", "LeU", "LeS",
+    "Concat", "Slice",
+    "Shl", "ShrU", "ShrS",
+    "Select"
   };
 }
 
@@ -546,7 +548,46 @@ namespace hdl {
               return constant(BitString::from_bool(true));
             }
           break;
-          // TODO
+          case Op::Kind::Concat: {
+            Op* op_high = dynamic_cast<Op*>(args[0]);
+            Op* op_low = dynamic_cast<Op*>(args[1]);
+            
+            if (op_low != nullptr &&
+                op_high != nullptr &&
+                op_high->kind == Op::Kind::Slice &&
+                op_low->kind == Op::Kind::Slice &&
+                op_high->args[0] == op_low->args[0]) {
+              
+              Constant* const_low_offset = dynamic_cast<Constant*>(op_low->args[1]);
+              Constant* const_high_offset = dynamic_cast<Constant*>(op_high->args[1]);
+              size_t low_width = dynamic_cast<Constant*>(op_low->args[2])->value.as_uint64();
+              size_t high_width = dynamic_cast<Constant*>(op_high->args[2])->value.as_uint64();
+              
+              bool is_contiguous =
+                const_low_offset != nullptr &&
+                const_high_offset != nullptr &&
+                const_low_offset->value.as_uint64() + low_width == const_high_offset->value.as_uint64();
+              
+              if (is_contiguous) {
+                return this->op(Op::Kind::Slice, {
+                  op_low->args[0],
+                  op_low->args[1],
+                  constant(BitString::from_uint(high_width + low_width))
+                });
+              }
+            }
+          }
+          break;
+          case Op::Kind::Slice: {
+            Constant* constant_offset = dynamic_cast<Constant*>(args[1]);
+            size_t width = dynamic_cast<Constant*>(args[2])->value.as_uint64();
+            if (constant_offset != nullptr &&
+                constant_offset->value.is_zero() &&
+                width == args[0]->width) {
+              return args[0];
+            }
+          }
+          break;
           case Op::Kind::Shl:
             if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
               if (constant->value.is_zero()) {
@@ -769,7 +810,16 @@ namespace hdl {
             case Op::Kind::LeU: expr << "$unsigned(" << args[0] << ") <= $unsigned(" << args[1] << ")"; break;
             case Op::Kind::LeS: expr << "$signed(" << args[0] << ") <= $signed(" << args[1] << ")"; break;
             case Op::Kind::Concat: expr << '{' << args[0] << ',' << args[1] << '}'; break;
-            case Op::Kind::Slice: expr << args[0] << '[' << args[2] << '+' << args[1] << " - 1:" << args[1] << ']'; break;
+            case Op::Kind::Slice:
+              expr << args[0] << '[';
+              if (const Constant* const_offset = dynamic_cast<const Constant*>(op->args[1])) {
+                size_t offset = const_offset->value.as_uint64();
+                expr << (offset + value->width - 1) << ':' << offset;
+              } else {
+                expr << args[2] << '+' << args[1] << " - 1:" << args[1];
+              }
+              expr << ']';
+            break;
             case Op::Kind::Shl: expr << args[0] << " << " << args[1]; break;
             case Op::Kind::ShrU: expr << args[0] << " >> " << args[1]; break;
             case Op::Kind::ShrS: expr << args[0] << " >>> " << args[1]; break;
@@ -780,6 +830,7 @@ namespace hdl {
           std::string address = print(stream, read->address, closed);
           expr << '(' << _memory_names.at(read->memory) << '[' << address << "])";
         } else {
+          std::cout << value << std::endl;
           throw Error("Unreachable: Invalid value");
         }
         
