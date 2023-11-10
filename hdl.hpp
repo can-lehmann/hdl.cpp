@@ -757,11 +757,13 @@ namespace hdl {
         }
         
         for (const Memory* memory : _module.memories()) {
-          count_usages(memory->clock);
-          for (const Memory::Write& write : memory->writes) {
-            count_usages(write.address);
-            count_usages(write.value);
-            count_usages(write.enable);
+          if (memory->writes.size() > 0) {
+            count_usages(memory->clock);
+            for (const Memory::Write& write : memory->writes) {
+              count_usages(write.address);
+              count_usages(write.value);
+              count_usages(write.enable);
+            }
           }
         }
         
@@ -910,17 +912,24 @@ namespace hdl {
         }
         
         for (const Memory* memory : _module.memories()) {
-          const std::string& name = _memory_names.at(memory);
-          std::string clock = print(stream, memory->clock, closed);
-          
-          for (const Memory::Write& write : memory->writes) {
-            std::string enable = print(stream, write.enable, closed);
-            std::string address = print(stream, write.address, closed);
-            std::string value = print(stream, write.value, closed);
+          if (memory->writes.size() > 0) {
+            const std::string& name = _memory_names.at(memory);
             
-            stream << "  always @(posedge " << clock << ")\n";
-            stream << "    if (" << enable << ")\n";
-            stream << "      " << name << "[" << address << "] <= " << value << ";\n";
+            if (memory->clock == nullptr) {
+              throw_error(Error, "Memory " << name << " has no clock");
+            }
+            
+            std::string clock = print(stream, memory->clock, closed);
+            
+            for (const Memory::Write& write : memory->writes) {
+              std::string enable = print(stream, write.enable, closed);
+              std::string address = print(stream, write.address, closed);
+              std::string value = print(stream, write.value, closed);
+              
+              stream << "  always @(posedge " << clock << ")\n";
+              stream << "    if (" << enable << ")\n";
+              stream << "      " << name << "[" << address << "] <= " << value << ";\n";
+            }
           }
         }
         
