@@ -209,6 +209,11 @@ namespace hdl {
     "Shl", "ShrU", "ShrS",
     "Select"
   };
+  
+  std::ostream& operator<<(std::ostream& stream, const Op::Kind& kind) {
+    stream << Op::KIND_NAMES[(size_t)kind];
+    return stream;
+  }
 }
 
 template <>
