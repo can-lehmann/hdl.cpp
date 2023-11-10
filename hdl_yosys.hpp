@@ -18,6 +18,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <deque>
 #include <unordered_set>
 
 #include "kernel/yosys.h"
@@ -58,18 +59,19 @@ namespace hdl {
         std::map<RTLIL::SigBit, Value*> values;
         std::map<RTLIL::IdString, Memory*> memories;
         std::unordered_set<RTLIL::Cell*> cells;
+        std::deque<std::pair<Reg*, RTLIL::SigSpec>> open_regs;
+        
         Module& module;
+        Yosys::SigMap& sigmap;
         
-        Context(Module& _module): module(_module) {}
-        
-        // TODO: Sigmap
+        Context(Module& _module, Yosys::SigMap& _sigmap): module(_module), sigmap(_sigmap) {}
         
         void set(const RTLIL::SigSpec& spec, Value* value) {
           if (spec.size() != value->width) {
             throw_error(Error, "Width mismatch, expected " << spec.size() << " bits, but got " << value->width);
           }
           for (RTLIL::SigBit bit : spec.bits()) {
-            values[bit] = module.op(Op::Kind::Slice, {
+            values[sigmap(bit)] = module.op(Op::Kind::Slice, {
               value,
               module.constant(BitString::from_uint(size_t(bit.offset))),
               module.constant(BitString::from_uint(1))
@@ -78,25 +80,31 @@ namespace hdl {
         }
         
         Value* operator[](const RTLIL::SigBit& bit) const {
-          if (!has(bit)) {
-            throw Error("Bit not yet lowered");
+          RTLIL::SigBit canonical = sigmap(bit);
+          if (values.find(canonical) == values.end()) {
+            throw_error(Error, "Bit not yet lowered");
           }
-          return values.at(bit);
+          return values.at(canonical);
         }
         
         bool has(const RTLIL::SigBit& bit) const {
-          return values.find(bit) != values.end();
+          return values.find(sigmap(bit)) != values.end();
+        }
+        
+        void queue_reg(Reg* reg, const RTLIL::SigSpec& next) {
+          open_regs.emplace_back(reg, next);
+        }
+        
+        bool has_open_regs() const {
+          return !open_regs.empty();
+        }
+        
+        std::pair<Reg*, RTLIL::SigSpec> pop_reg() {
+          std::pair<Reg*, RTLIL::SigSpec> reg = open_regs.front();
+          open_regs.pop_front();
+          return reg;
         }
       };
-      
-      Value* lower(const RTLIL::Const& constant, Context& context) {
-        BitString bit_string(constant.size());
-        for (size_t it = 0; it < bit_string.width(); it++) {
-          // TODO
-          bit_string.set(it, constant[it] == RTLIL::S1);
-        }
-        return context.module.constant(bit_string);
-      }
       
       Value* extend(Value* value, size_t target, bool is_signed, Context& context) {
         if (target < value->width) {
@@ -331,7 +339,7 @@ namespace hdl {
         
         Reg* reg = context.module.reg(BitString(width), lower(clk, context));
         context.set(q, reg);
-        reg->next = lower(d, context);
+        context.queue_reg(reg, d);
       }
       
       void lower_mux(RTLIL::Cell* cell, Context& context) {
@@ -444,18 +452,80 @@ namespace hdl {
         );
       }
       
+      void lower_bwmux(RTLIL::Cell* cell, Context& context) {
+        RTLIL::SigSpec port_s = cell->getPort(RTLIL::ID::S);
+        RTLIL::SigSpec port_a = cell->getPort(RTLIL::ID::A);
+        RTLIL::SigSpec port_b = cell->getPort(RTLIL::ID::B);
+        RTLIL::SigSpec port_y = cell->getPort(RTLIL::ID::Y);
+        
+        Value* select = lower(port_s, context);
+        
+        context.set(port_y,
+          context.module.op(Op::Kind::Or, {
+            context.module.op(Op::Kind::And, {
+              select,
+              lower(port_b, context)
+            }),
+            context.module.op(Op::Kind::And, {
+              context.module.op(Op::Kind::Not, { select }),
+              lower(port_a, context)
+            })
+          })
+        );
+      }
+      
+      
+      void lower_bweqx(RTLIL::Cell* cell, Context& context) {
+        RTLIL::SigSpec port_a = cell->getPort(RTLIL::ID::A);
+        RTLIL::SigSpec port_b = cell->getPort(RTLIL::ID::B);
+        RTLIL::SigSpec port_y = cell->getPort(RTLIL::ID::Y);
+        
+        context.set(port_y,
+          context.module.op(Op::Kind::Not, {
+            context.module.op(Op::Kind::Xor, {
+              lower(port_a, context),
+              lower(port_b, context)
+            })
+          })
+        );
+      }
+      
       void lower(RTLIL::Cell* cell, Context& context) {
         if (context.cells.find(cell) != context.cells.end()) {
           return;
         }
         context.cells.insert(cell);
-      
+        
+        std::cout << RTLIL::id2cstr(cell->name) << std::endl;
         std::cout << RTLIL::id2cstr(cell->type) << std::endl;
         for (const auto& [name, value] : cell->parameters) {
           std::cout << "  " << RTLIL::id2cstr(name) << " = " << value.as_string() << std::endl;
         }
         for (const auto& [name, spec] : cell->connections()) {
-          std::cout << "  " << RTLIL::id2cstr(name) << " = " << Yosys::log_signal(spec) << std::endl;
+          std::cout << "  " << RTLIL::id2cstr(name) << " = ";
+          RTLIL::Cell* prev = nullptr;
+          bool is_first = true;
+          for (const RTLIL::SigBit& bit : spec.bits()) {
+            RTLIL::SigBit canonical = _sigmap(bit);
+            if (canonical.wire == nullptr) {
+              if (!is_first) { std::cout << ", "; }
+              std::cout << int(canonical.data);
+              is_first = false;
+            } else if (_drivers.find(canonical) != _drivers.end()) {
+              RTLIL::Cell* port_driver = _drivers.at(canonical).first;
+              if (port_driver != prev) {
+                if (!is_first) { std::cout << ", "; }
+                std::cout << RTLIL::id2cstr(port_driver->name);
+                prev = port_driver;
+                is_first = false;
+              }
+            } else {
+              if (!is_first) { std::cout << ", "; }
+              std::cout << '?';
+              is_first = false;
+            }
+          }
+          std::cout << std::endl;
         }
         
         if (cell->type == ID($dff)) {
@@ -468,6 +538,10 @@ namespace hdl {
           lower_memrd(cell, context);
         } else if (cell->type == ID($memwr_v2)) {
           lower_memwr_v2(cell, context);
+        } else if (cell->type == ID($bweqx)) {
+          lower_bweqx(cell, context);
+        } else if (cell->type == ID($bwmux)) {
+          lower_bwmux(cell, context);
         } else if (is_unop(cell->type)) {
           lower_unop(cell, context);
         } else if (is_binop(cell->type)) {
@@ -475,6 +549,8 @@ namespace hdl {
         } else {
           throw_error(Error, "Unknown cell: " << RTLIL::id2cstr(cell->type));
         }
+        
+        std::cout << "finish: " << RTLIL::id2cstr(cell->name) << std::endl;
       }
       
       Value* lower(const RTLIL::SigBit& _bit, Context& context) {
@@ -486,8 +562,8 @@ namespace hdl {
         if (bit.wire == nullptr) {
           bool value = false;
           switch (bit.data) {
-            case RTLIL::Sx: // TODO
-            case RTLIL::Sz: // TODO
+            case RTLIL::Sx: throw_error(Error, "x state is not supported");
+            case RTLIL::Sz: throw_error(Error, "z state is not supported");
             case RTLIL::S0: value = false; break;
             case RTLIL::S1: value = true; break;
             default: throw Error("Unsupported state");
@@ -501,10 +577,10 @@ namespace hdl {
           auto [cell, output] = _drivers[bit];
           lower(cell, context);
         } else {
-          std::cout << Yosys::log_signal(bit);
-          std::cout << "No driver" << std::endl;
+          throw_error(Error, "Signal " << Yosys::log_signal(bit) << " has no driver");
         }
         
+        std::cout << bit.offset << std::endl;
         return context[bit];
       }
       
@@ -531,7 +607,7 @@ namespace hdl {
       
     public:
       void into(Module& hdl_module) {
-        Context context(hdl_module);
+        Context context(hdl_module, _sigmap);
         
         for (const auto& [name, memory] : _ys_module->memories) {
           context.memories[name] = hdl_module.memory(memory->width, memory->size, nullptr);
@@ -552,6 +628,11 @@ namespace hdl {
           if (cell->type == ID($memwr_v2)) {
             lower(cell, context);
           }
+        }
+        
+        while (context.has_open_regs()) {
+          auto [reg, next] = context.pop_reg();
+          reg->next = lower(next, context);
         }
       }
     };
