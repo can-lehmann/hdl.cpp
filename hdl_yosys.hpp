@@ -23,6 +23,7 @@
 
 #include "kernel/yosys.h"
 #include "kernel/sigtools.h"
+#include "kernel/ffinit.h"
 
 #include "hdl.hpp"
 
@@ -40,9 +41,13 @@ namespace hdl {
     private:
       RTLIL::Module* _ys_module = nullptr;
       Yosys::SigMap _sigmap;
+      Yosys::FfInitVals _ff_init_vals;
       Yosys::dict<RTLIL::SigBit, std::pair<RTLIL::Cell*, RTLIL::IdString>> _drivers;
     public:
-      Lowering(RTLIL::Module* ys_module): _ys_module(ys_module), _sigmap(ys_module) {
+      Lowering(RTLIL::Module* ys_module):
+          _ys_module(ys_module),
+          _sigmap(ys_module),
+          _ff_init_vals(&_sigmap, ys_module) {
         for (RTLIL::Cell* cell : ys_module->cells()) {
           for (auto [name, spec] : cell->connections()) {
             if (cell->output(name)) {
@@ -330,6 +335,24 @@ namespace hdl {
         context.set(port_y, y);
       }
       
+      bool lower(RTLIL::State state) {
+        switch (state) {
+          case RTLIL::S0: return false;
+          case RTLIL::S1: return true;
+          case RTLIL::Sx: throw_error(Error, "x state is not supported");
+          case RTLIL::Sz: throw_error(Error, "z state is not supported");
+          default: throw_error(Error, "Unsupported state");
+        }
+      }
+      
+      BitString lower(const RTLIL::Const& constant, Context& context) {
+        BitString bit_string(constant.size());
+        for (size_t it = 0; it < bit_string.width(); it++) {
+          bit_string.set(it, lower(constant[it]));
+        }
+        return bit_string;
+      }
+      
       void lower_dff(RTLIL::Cell* cell, Context& context) {
         RTLIL::SigSpec clk = cell->getPort(RTLIL::ID::CLK);
         RTLIL::SigSpec d = cell->getPort(RTLIL::ID::D);
@@ -337,7 +360,11 @@ namespace hdl {
         
         size_t width = cell->getParam(RTLIL::ID::WIDTH).as_int();
         
-        Reg* reg = context.module.reg(BitString(width), lower(clk, context));
+        BitString initial = lower(_ff_init_vals(q), context);
+        if (initial.width() != width) {
+          throw_error(Error, "Width mismatch");
+        }
+        Reg* reg = context.module.reg(initial, lower(clk, context));
         context.set(q, reg);
         context.queue_reg(reg, d);
       }
@@ -560,15 +587,7 @@ namespace hdl {
         }
         
         if (bit.wire == nullptr) {
-          bool value = false;
-          switch (bit.data) {
-            case RTLIL::Sx: throw_error(Error, "x state is not supported");
-            case RTLIL::Sz: throw_error(Error, "z state is not supported");
-            case RTLIL::S0: value = false; break;
-            case RTLIL::S1: value = true; break;
-            default: throw Error("Unsupported state");
-          }
-          return context.module.constant(BitString::from_bool(value));
+          return context.module.constant(BitString::from_bool(lower(bit.data)));
         }
         
         if (bit.wire->port_input) {
