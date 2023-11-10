@@ -339,7 +339,7 @@ namespace hdl {
         switch (state) {
           case RTLIL::S0: return false;
           case RTLIL::S1: return true;
-          case RTLIL::Sx: throw_error(Error, "x state is not supported");
+          case RTLIL::Sx: return false; // TODO
           case RTLIL::Sz: throw_error(Error, "z state is not supported");
           default: throw_error(Error, "Unsupported state");
         }
@@ -455,12 +455,6 @@ namespace hdl {
         Value* en = lower(port_en, context);
         Value* clk = lower(port_clk, context);
         
-        if (memory->clock == nullptr) {
-          memory->clock = clk;
-        } else if (memory->clock != clk) {
-          throw_error(Error, "Memories with multiple clocks are not supported");
-        }
-        
         Value* any_en = context.module.op(Op::Kind::Not, {
           context.module.op(Op::Kind::Eq, {
             en,
@@ -468,7 +462,7 @@ namespace hdl {
           })
         });
         
-        memory->write(addr, any_en,
+        memory->write(clk, addr, any_en,
           context.module.op(Op::Kind::Or, {
             context.module.op(Op::Kind::And, {
               memory->read(addr),
@@ -629,7 +623,7 @@ namespace hdl {
         Context context(hdl_module, _sigmap);
         
         for (const auto& [name, memory] : _ys_module->memories) {
-          context.memories[name] = hdl_module.memory(memory->width, memory->size, nullptr);
+          context.memories[name] = hdl_module.memory(memory->width, memory->size);
         }
         
         for (RTLIL::Wire* wire : _ys_module->wires()) {

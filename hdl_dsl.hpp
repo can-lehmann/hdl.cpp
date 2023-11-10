@@ -263,7 +263,7 @@ namespace hdl {
       
       template <size_t Width>
       static Memory* create_memory(const Val<Width>&) {
-        return global_context.module().memory(Width, Size, nullptr);
+        return global_context.module().memory(Width, Size);
       }
     public:
       Mem(): _module(global_context.module()), _memory(create_memory(T())) {}
@@ -275,8 +275,7 @@ namespace hdl {
       
       template <size_t AddressWidth>
       void write(const U<AddressWidth>& address, const T& value) {
-        _memory->clock = global_context.clock();
-        _memory->write(address.value(), global_context.condition(), value.value());
+        _memory->write(global_context.clock(), address.value(), global_context.condition(), value.value());
       }
     };
     

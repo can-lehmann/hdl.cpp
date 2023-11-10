@@ -85,7 +85,7 @@ The following operators are available for representing combinatorial logic.
 
 ### Memories
 
-Memories can be created using the `Memory* Module::memory(size_t width, size_t size, Value* clock)` method.
+Memories can be created using the `Memory* Module::memory(size_t width, size_t size)` method.
 
 ### Simulation
 

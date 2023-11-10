@@ -229,10 +229,10 @@ void test_sim() {
     hdl::Value* address = module.input("address", 5);
     hdl::Value* write_value = module.input("write_value", 64);
     hdl::Value* write_enable = module.input("write_enable", 1);
-    hdl::Memory* memory = module.memory(64, 32, clock);
+    hdl::Memory* memory = module.memory(64, 32);
     
     module.output("read", memory->read(address));
-    memory->write(address, write_enable, write_value);
+    memory->write(clock, address, write_enable, write_value);
     
     {
       hdl::sim::Simulation sim(module);

@@ -234,12 +234,13 @@ struct std::hash<hdl::Op> {
 namespace hdl {
   struct Memory {
     struct Write {
+      Value* clock = nullptr;
       Value* address = nullptr;
       Value* enable = nullptr;
       Value* value = nullptr;
       
-      Write(Value* _address, Value* _enable, Value* _value):
-        address(_address), enable(_enable), value(_value) {}
+      Write(Value* _clock, Value* _address, Value* _enable, Value* _value):
+        clock(_clock), address(_address), enable(_enable), value(_value) {}
     };
     
     struct Read : public Comb {
@@ -252,13 +253,12 @@ namespace hdl {
     
     const size_t width = 0;
     const size_t size = 0;
-    Value* clock = nullptr;
     std::vector<Write> writes;
     std::vector<Read*> reads;
     std::string name;
     
-    Memory(size_t _width, size_t _size, Value* _clock):
-      width(_width), size(_size), clock(_clock) {}
+    Memory(size_t _width, size_t _size):
+      width(_width), size(_size) {}
     
     Memory(const Memory& other) = delete;
     Memory& operator=(const Memory& other) = delete;
@@ -269,7 +269,13 @@ namespace hdl {
       }
     }
     
-    void write(Value* address, Value* enable, Value* value) {
+    void write(Value* clock, Value* address, Value* enable, Value* value) {
+      if (clock->width != 1) {
+        throw_error(Error,
+          "The memory write clock signal must have width " << 1 <<
+          " but got value of width " << clock->width
+        );
+      }
       if (value->width != width) {
         throw_error(Error,
           "Unable to write value of width " << value->width <<
@@ -287,7 +293,7 @@ namespace hdl {
           return;
         }
       }
-      writes.emplace_back(address, enable, value);
+      writes.emplace_back(clock, address, enable, value);
     }
     
     Read* read(Value* address) {
@@ -420,8 +426,8 @@ namespace hdl {
       return reg;
     }
     
-    Memory* memory(size_t width, size_t size, Value* clock) {
-      Memory* memory = new Memory(width, size, clock);
+    Memory* memory(size_t width, size_t size) {
+      Memory* memory = new Memory(width, size);
       _memories.push_back(memory);
       return memory;
     }
@@ -652,8 +658,8 @@ namespace hdl {
       if (reached.find(memory) == reached.end()) {
         reached.insert(memory);
         
-        trace(memory->clock, reached);
         for (const Memory::Write& write : memory->writes) {
+          trace(write.clock, reached);
           trace(write.address, reached);
           trace(write.enable, reached);
           trace(write.value, reached);
@@ -758,8 +764,8 @@ namespace hdl {
         
         for (const Memory* memory : _module.memories()) {
           if (memory->writes.size() > 0) {
-            count_usages(memory->clock);
             for (const Memory::Write& write : memory->writes) {
+              count_usages(write.clock);
               count_usages(write.address);
               count_usages(write.value);
               count_usages(write.enable);
@@ -912,24 +918,17 @@ namespace hdl {
         }
         
         for (const Memory* memory : _module.memories()) {
-          if (memory->writes.size() > 0) {
-            const std::string& name = _memory_names.at(memory);
+          const std::string& name = _memory_names.at(memory);
+          
+          for (const Memory::Write& write : memory->writes) {
+            std::string clock = print(stream, write.clock, closed);
+            std::string enable = print(stream, write.enable, closed);
+            std::string address = print(stream, write.address, closed);
+            std::string value = print(stream, write.value, closed);
             
-            if (memory->clock == nullptr) {
-              throw_error(Error, "Memory " << name << " has no clock");
-            }
-            
-            std::string clock = print(stream, memory->clock, closed);
-            
-            for (const Memory::Write& write : memory->writes) {
-              std::string enable = print(stream, write.enable, closed);
-              std::string address = print(stream, write.address, closed);
-              std::string value = print(stream, write.value, closed);
-              
-              stream << "  always @(posedge " << clock << ")\n";
-              stream << "    if (" << enable << ")\n";
-              stream << "      " << name << "[" << address << "] <= " << value << ";\n";
-            }
+            stream << "  always @(posedge " << clock << ")\n";
+            stream << "    if (" << enable << ")\n";
+            stream << "      " << name << "[" << address << "] <= " << value << ";\n";
           }
         }
         
@@ -1113,14 +1112,14 @@ namespace hdl {
         }
         
         for (const Memory* memory : _module.memories()) {
-          if (_show_clocks) {
-            size_t clock_id = print(memory->clock, ctx);
-            stream << "  n" << clock_id << " -> " << (_split_regs ? 'm' : 'n') << ctx[memory] << " [label=clock];\n";
-          }
-          
           for (const Memory::Write& write : memory->writes) {
             size_t write_id = ctx.alloc();
             ctx.stream << "  w" << write_id << " [label=Write];\n";
+            
+            if (_show_clocks) {
+              size_t clock_id = print(write.clock, ctx);
+              stream << "  n" << clock_id << " -> w" << write_id << " [label=clock];\n";
+            }
             
             size_t address_id = print(write.address, ctx);
             stream << "  n" << address_id << " -> w" << write_id << " [label=address];\n";
@@ -1264,8 +1263,10 @@ namespace hdl {
         
         it = 0;
         for (const Memory* memory : _module.memories()) {
-          _prev_clocks[memory->clock] = false;
           _memories[memory] = MemoryData(memory);
+          for (const Memory::Write& write : memory->writes) {
+            _prev_clocks[write.clock] = false;
+          }
         }
         
         reset();
@@ -1314,9 +1315,9 @@ namespace hdl {
         }
         
         for (const Memory* memory : _module.memories()) {
-          bool clock = eval(memory->clock, values)[0];
-          if (clock && !_prev_clocks.at(memory->clock)) {
-            for (const Memory::Write& write : memory->writes) {
+          for (const Memory::Write& write : memory->writes) {
+            bool clock = eval(write.clock, values)[0];
+            if (clock && !_prev_clocks.at(write.clock)) {
               bool enable = eval(write.enable, values)[0];
               if (enable) {
                 uint64_t address = eval(write.address, values).as_uint64();
