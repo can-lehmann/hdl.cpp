@@ -8,6 +8,7 @@ Besides the core IR, the library provides the following features:
 - Simulation
 - Visualization
 - Verilog Code Generation
+- Verilog Frontend via a Yosys Plugin
 - DSL for hardware description
 - Theorem Proving with Z3 or bit-blasting
 
