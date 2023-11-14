@@ -18,16 +18,133 @@
 #include <unordered_map>
 #include <string>
 #include <sstream>
+#include <optional>
 
 #include "hdl.hpp"
+
+#define throw_error(Error, msg) { \
+  std::ostringstream error_message; \
+  error_message << msg; \
+  throw Error(error_message.str()); \
+}
 
 namespace hdl {
   namespace textir {
     class Reader {
     private:
       Module& _module;
+      
+      bool is_digit(char chr) const {
+        return chr >= '0' && chr <= '9';
+      }
+      
+      bool is_whitespace(char chr) const {
+        return chr == ' ' || chr == '\t' || chr == '\r';
+      }
+      
+      void skip_whitespace(std::istream& stream) const {
+        while (!stream.eof() && is_whitespace(stream.peek())) {
+          stream.get();
+        }
+      }
+      
+      size_t read_size(std::istream& stream) const {
+        skip_whitespace(stream);
+        size_t value = 0;
+        if (stream.eof() || !is_digit(stream.peek())) {
+          throw_error(Error, "Expected number");
+        }
+        stream >> value;
+        return value;
+      }
+      
+      size_t read_id(std::istream& stream) const {
+        return read_size(stream);
+      }
+      
+      char hex_digit(char chr) const {
+        if (chr >= '0' && chr <= '9') {
+          return chr - '0';
+        } else if (chr >= 'a' && chr <= 'f') {
+          return chr - 'a' + 10;
+        } else if (chr >= 'A' && chr <= 'F') {
+          return chr - 'A' + 10;
+        } else {
+          throw_error(Error, "Invalid hex digit");
+        }
+      }
+      
+      std::string read_string(std::istream& stream) const {
+        skip_whitespace(stream);
+        
+        if (stream.get() != '\"') {
+          throw_error(Error, "Expected \"");
+        }
+        
+        std::string string;
+        while (stream.peek() != '\"') {
+          if (stream.eof()) {
+            throw_error(Error, "Unterminated string literal");
+          }
+          
+          if (stream.peek() == '\\') {
+            stream.get();
+            if (stream.get() != 'x') {
+              throw_error(Error, "Expected x");
+            }
+            
+            char chr = hex_digit(stream.get()) << 4;
+            chr |= hex_digit(stream.get());
+            string.push_back(chr);
+          } else {
+            string.push_back(char(stream.get()));
+          }
+        }
+        
+        stream.get();
+        return string;
+      }
+      
+      std::string read_word(std::istream& stream) const {
+        skip_whitespace(stream);
+        std::string word;
+        while (!stream.eof() && stream.peek() != '\n' && !is_whitespace(stream.peek())) {
+          word.push_back(char(stream.get()));
+        }
+        return word;
+      }
+      
+      BitString read_bit_string(std::istream& stream) const {
+        size_t width = read_size(stream);
+        if (stream.get() != '\'') {
+          throw_error(Error, "Expected \'");
+        }
+        if (stream.get() != 'b') {
+          throw_error(Error, "Expected b");
+        }
+        
+        BitString bit_string(width);
+        
+        std::string bits = read_word(stream);
+        for (size_t it = 0; it < bits.size(); it++) {
+          char bit = bits[bits.size() - it - 1];
+          if (bit != '0' && bit != '1') {
+            throw_error(Error, "Invalid binary digit");
+          }
+          bit_string.set(it, bit == '1');
+        }
+        
+        return bit_string;
+      }
     public:
       Reader(Module& module): _module(module) {}
+      
+      static Module read_module(std::istream& stream) {
+        Module module("top");
+        Reader reader(module);
+        reader.read(stream);
+        return std::move(module);
+      }
       
       static Module load_module(const char* path) {
         Module module("top");
@@ -37,7 +154,97 @@ namespace hdl {
       }
       
       void read(std::istream& stream) const {
+        std::unordered_map<size_t, Value*> values;
+        std::unordered_map<size_t, Memory*> memories;
         
+        skip_whitespace(stream);
+        while (!stream.eof()) {
+          while (!stream.eof() && stream.peek() == '#') {
+            while (!stream.eof() && stream.get() != '\n') {}
+            skip_whitespace(stream);
+          }
+        
+          std::optional<size_t> id = 0;
+          if (is_digit(stream.peek())) {
+            id = read_id(stream);
+            skip_whitespace(stream);
+            if (stream.get() != '=') {
+              throw_error(Error, "Expected =");
+            }
+            skip_whitespace(stream);
+          }
+          
+          std::string cmd = read_word(stream);
+          
+          if (cmd == "input") {
+            std::string name = read_string(stream);
+            size_t width = read_size(stream);
+            values[id.value()] = _module.input(name, width);
+          } else if (cmd == "reg") {
+            BitString initial = read_bit_string(stream);
+            Reg* reg = _module.reg(initial, nullptr);
+            reg->name = read_string(stream);
+            values[id.value()] = reg;
+          } else if (cmd == "memory") {
+            size_t width = read_size(stream);
+            size_t size = read_size(stream);
+            hdl::Memory* memory = _module.memory(width, size);
+            memory->name = read_string(stream);
+            memories[id.value()] = memory;
+          } else if (cmd == "next") {
+            Reg* reg = dynamic_cast<Reg*>(values.at(read_size(stream)));
+            reg->clock = values.at(read_id(stream));
+            reg->next = values.at(read_id(stream));
+          } else if (cmd == "read") {
+            Memory* memory = memories.at(read_id(stream));
+            Value* address = values.at(read_id(stream));
+            values[id.value()] = memory->read(address);
+          } else if (cmd == "write") {
+            Memory* memory = memories.at(read_id(stream));
+            Value* clock = values.at(read_id(stream));
+            Value* address = values.at(read_id(stream));
+            Value* enable = values.at(read_id(stream));
+            Value* value = values.at(read_id(stream));
+            memory->write(clock, address, enable, value);
+          } else if (cmd == "output") {
+            std::string name = read_string(stream);
+            Value* value = values.at(read_id(stream));
+            _module.output(name, value);
+          } else if (cmd == "constant") {
+            BitString bit_string = read_bit_string(stream);
+            values[id.value()] = _module.constant(bit_string);
+          } else {
+            std::optional<Op::Kind> kind;
+            for (size_t it = 0; it < Op::KIND_COUNT; it++) {
+              if (cmd == Op::KIND_NAMES[it]) {
+                kind = Op::Kind(it);
+                break;
+              }
+            }
+            
+            if (!kind.has_value()) {
+              throw_error(Error, "Unknown command " << cmd);
+            }
+            
+            std::vector<Value*> args;
+            
+            skip_whitespace(stream);
+            while (!stream.eof() && stream.peek() != '\n') {
+              args.push_back(values.at(read_id(stream)));
+              skip_whitespace(stream);
+            }
+            
+            values[id.value()] = _module.op(kind.value(), args);
+          }
+          
+          skip_whitespace(stream);
+          
+          if (!stream.eof() && stream.get() != '\n') {
+            throw_error(Error, "Expected newline or EOF");
+          }
+          
+          skip_whitespace(stream);
+        }
       }
       
       void load(const char* path) const {
@@ -52,7 +259,7 @@ namespace hdl {
       Module& _module;
       
       bool is_printable(char chr) const {
-        return chr >= '!' && chr <= '~' && chr != '\\' && chr != '\"';
+        return (chr >= '!' && chr <= '~' && chr != '\\' && chr != '\"') || chr == ' ';
       }
       
       void print(std::ostream& stream, const char* str) const {
@@ -127,7 +334,7 @@ namespace hdl {
           context.stream << context[read->memory] << ' ';
           context.stream << context[read->address];
         } else {
-          throw Error("Unreachable");
+          throw_error(Error, "Unreachable");
         }
         
         context.stream << '\n';
@@ -200,5 +407,7 @@ namespace hdl {
     };
   }
 }
+
+#undef throw_error
 
 #endif

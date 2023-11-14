@@ -81,6 +81,7 @@ namespace hdl {
       Select
     };
     
+    static constexpr const size_t KIND_COUNT = size_t(Kind::Select) + 1;
     static const char* KIND_NAMES[];
     
     static constexpr const size_t MAX_ARG_COUNT = 3;

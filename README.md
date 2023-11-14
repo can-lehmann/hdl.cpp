@@ -11,6 +11,7 @@ Besides the core IR, the library provides the following features:
 - Verilog Frontend via a Yosys Plugin
 - DSL for hardware description
 - Theorem Proving with Z3 or bit-blasting
+- Serialization using a text based format
 
 **Note:** hdl.cpp is currently highly unstable.
 

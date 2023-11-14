@@ -1,14 +1,18 @@
-all: tests/test_hdl tests/test_bitstring examples/hdl examples/hdl_bitstring examples/hdl_dsl examples/hdl_proof examples/hdl_proof_z3
+all: tests/test_hdl tests/test_bitstring tests/test_textir examples/hdl examples/hdl_bitstring examples/hdl_dsl examples/hdl_proof examples/hdl_proof_z3
 
-test: tests/test_hdl tests/test_bitstring
+test: tests/test_hdl tests/test_bitstring tests/test_textir
 	./tests/test_bitstring
 	./tests/test_hdl
+	./tests/test_textir
 
 tests/test_hdl: tests/test_hdl.cpp hdl.hpp hdl_bitstring.hpp
 	clang++ tests/test_hdl.cpp -o tests/test_hdl
 
 tests/test_bitstring: tests/test_bitstring.cpp hdl_bitstring.hpp
 	clang++ tests/test_bitstring.cpp -o tests/test_bitstring
+
+tests/test_textir: tests/test_textir.cpp hdl.hpp hdl_textir.hpp
+	clang++ tests/test_textir.cpp -o tests/test_textir
 
 examples/hdl: examples/hdl.cpp hdl.hpp hdl_bitstring.hpp
 	clang++ examples/hdl.cpp -o examples/hdl
