@@ -151,6 +151,11 @@ void check(hdl::Module& module) {
 }
 
 int main() {
+  Test("empty").run([](){
+    hdl::Module module("top");
+    check(module);
+  });
+  
   Test("constant").run([](){
     hdl::Module module("top");
     module.output("zeros", module.constant(hdl::BitString("000000")));
@@ -182,6 +187,16 @@ int main() {
     hdl::Value* a = module.input("a", 8);
     hdl::Value* b = module.input("b", 8);
     module.output("out", module.op(hdl::Op::Kind::Select, {cond, a, b}));
+    
+    check(module);
+  });
+  
+  Test("operator/select/swapped").run([](){
+    hdl::Module module("top");
+    hdl::Value* cond = module.input("cond", 1);
+    hdl::Value* a = module.input("a", 8);
+    hdl::Value* b = module.input("b", 8);
+    module.output("out", module.op(hdl::Op::Kind::Select, {cond, b, a}));
     
     check(module);
   });

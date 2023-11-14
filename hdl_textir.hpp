@@ -18,7 +18,6 @@
 #include <unordered_map>
 #include <string>
 #include <sstream>
-#include <optional>
 
 #include "hdl.hpp"
 
@@ -164,9 +163,11 @@ namespace hdl {
             skip_whitespace(stream);
           }
         
-          std::optional<size_t> id = 0;
+          size_t id = 0;
+          bool has_id = false;
           if (is_digit(stream.peek())) {
             id = read_id(stream);
+            has_id = true;
             skip_whitespace(stream);
             if (stream.get() != '=') {
               throw_error(Error, "Expected =");
@@ -179,18 +180,21 @@ namespace hdl {
           if (cmd == "input") {
             std::string name = read_string(stream);
             size_t width = read_size(stream);
-            values[id.value()] = _module.input(name, width);
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            values[id] = _module.input(name, width);
           } else if (cmd == "reg") {
             BitString initial = read_bit_string(stream);
             Reg* reg = _module.reg(initial, nullptr);
             reg->name = read_string(stream);
-            values[id.value()] = reg;
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            values[id] = reg;
           } else if (cmd == "memory") {
             size_t width = read_size(stream);
             size_t size = read_size(stream);
             hdl::Memory* memory = _module.memory(width, size);
             memory->name = read_string(stream);
-            memories[id.value()] = memory;
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            memories[id] = memory;
           } else if (cmd == "next") {
             Reg* reg = dynamic_cast<Reg*>(values.at(read_size(stream)));
             reg->clock = values.at(read_id(stream));
@@ -198,7 +202,8 @@ namespace hdl {
           } else if (cmd == "read") {
             Memory* memory = memories.at(read_id(stream));
             Value* address = values.at(read_id(stream));
-            values[id.value()] = memory->read(address);
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            values[id] = memory->read(address);
           } else if (cmd == "write") {
             Memory* memory = memories.at(read_id(stream));
             Value* clock = values.at(read_id(stream));
@@ -212,17 +217,20 @@ namespace hdl {
             _module.output(name, value);
           } else if (cmd == "constant") {
             BitString bit_string = read_bit_string(stream);
-            values[id.value()] = _module.constant(bit_string);
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            values[id] = _module.constant(bit_string);
           } else {
-            std::optional<Op::Kind> kind;
+            Op::Kind kind;
+            bool has_kind = false;
             for (size_t it = 0; it < Op::KIND_COUNT; it++) {
               if (cmd == Op::KIND_NAMES[it]) {
                 kind = Op::Kind(it);
+                has_kind = true;
                 break;
               }
             }
             
-            if (!kind.has_value()) {
+            if (!has_kind) {
               throw_error(Error, "Unknown command " << cmd);
             }
             
@@ -234,7 +242,8 @@ namespace hdl {
               skip_whitespace(stream);
             }
             
-            values[id.value()] = _module.op(kind.value(), args);
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            values[id] = _module.op(kind, args);
           }
           
           skip_whitespace(stream);
