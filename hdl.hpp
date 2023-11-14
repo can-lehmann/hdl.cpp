@@ -751,6 +751,10 @@ namespace hdl {
         
         _counts[value] = 1;
         if (const Op* op = dynamic_cast<const Op*>(value)) {
+          if (op->kind == Op::Kind::Slice) {
+            // Slices can only be applied to wires, not expressions
+            count_usages(op->args[0]);
+          }
           for (const Value* arg : op->args) {
             count_usages(arg);
           }
