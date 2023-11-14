@@ -16,6 +16,7 @@
 
 #include "../hdl.hpp"
 #include "../hdl_yosys.hpp"
+#include "../hdl_textir.hpp"
 
 USING_YOSYS_NAMESPACE
 
@@ -36,13 +37,8 @@ struct HdlBackend : public Backend {
       hdl::Module hdl_module(RTLIL::id2cstr(module->name));
       lowering.into(hdl_module);
       
-      std::cout << "print verilog" << std::endl;
-      
-      // TODO: Write to text IR instead
-      hdl::verilog::Printer printer(hdl_module);
+      hdl::textir::Printer printer(hdl_module);
       printer.print(*file);
-      
-      std::cout << "done" << std::endl;
     }
   }
   

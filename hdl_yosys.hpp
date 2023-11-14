@@ -52,7 +52,11 @@ namespace hdl {
           for (auto [name, spec] : cell->connections()) {
             if (cell->output(name)) {
               for (RTLIL::SigBit bit : spec) {
-                _drivers[_sigmap(bit)] = { cell, name };
+                RTLIL::SigBit canonical = _sigmap(bit);
+                if (_drivers.find(canonical) != _drivers.end()) {
+                  throw_error(Error, "Multiple drivers for signal");
+                }
+                _drivers[canonical] = { cell, name };
               }
             }
           }
@@ -75,12 +79,14 @@ namespace hdl {
           if (spec.size() != value->width) {
             throw_error(Error, "Width mismatch, expected " << spec.size() << " bits, but got " << value->width);
           }
+          size_t it = 0;
           for (RTLIL::SigBit bit : spec.bits()) {
             values[sigmap(bit)] = module.op(Op::Kind::Slice, {
               value,
-              module.constant(BitString::from_uint(size_t(bit.offset))),
+              module.constant(BitString::from_uint(it)),
               module.constant(BitString::from_uint(1))
             });
+            it++;
           }
         }
         
@@ -598,14 +604,51 @@ namespace hdl {
       }
       
       Value* lower(const RTLIL::SigSpec& spec, Context& context) {
-        hdl::Value* result = nullptr;
+        std::vector<Value*> chunks;
+        Value* chunk = nullptr;
+        
         for (const RTLIL::SigBit& bit : spec.bits()) {
-          hdl::Value* value = lower(bit, context);
+          Value* value = lower(bit, context);
+          
+          bool concat = false;
+          if (Constant* constant = dynamic_cast<Constant*>(value)) {
+            if (dynamic_cast<Constant*>(chunk)) {
+              concat = true;
+            }
+          } else if (Op* op = dynamic_cast<Op*>(value)) {
+            if (Op* chunk_op = dynamic_cast<Op*>(chunk)) {
+              if (op->kind == Op::Kind::Slice &&
+                  chunk_op->kind == Op::Kind::Slice &&
+                  op->args[0] == chunk_op->args[0]) {
+                concat = true;
+              }
+            }
+          }
+          
+          if (concat) {
+            chunk = context.module.op(hdl::Op::Kind::Concat, {
+              value,
+              chunk
+            });
+          } else {
+            if (chunk != nullptr) {
+              chunks.push_back(chunk);
+            }
+            chunk = value;
+          }
+        }
+        
+        if (chunk != nullptr) {
+          chunks.push_back(chunk);
+        }
+        
+        hdl::Value* result = nullptr;
+        for (Value* chunk : chunks) {
           if (result == nullptr) {
-            result = value;
+            result = chunk;
           } else {
             result = context.module.op(hdl::Op::Kind::Concat, {
-              value,
+              chunk,
               result
             });
           }
