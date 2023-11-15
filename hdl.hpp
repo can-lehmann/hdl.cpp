@@ -415,6 +415,15 @@ namespace hdl {
       throw_error(Error, "Unable to find output \"" << name << "\"");
     }
     
+    Reg* find_reg(const std::string& name) const {
+      for (Reg* reg : _regs) {
+        if (reg->name == name) {
+          return reg;
+        }
+      }
+      throw_error(Error, "Unable to find reg \"" << name << "\"");
+    }
+    
     Input* input(const std::string& name, size_t width) {
       Input* input = new Input(name, width);
       _inputs.push_back(input);
@@ -597,6 +606,29 @@ namespace hdl {
                 constant_offset->value.is_zero() &&
                 width == args[0]->width) {
               return args[0];
+            } else if (Op* op = dynamic_cast<Op*>(args[0])) {
+              switch (op->kind) {
+                case Op::Kind::Concat:
+                  if (constant_offset != nullptr) {
+                    size_t offset = constant_offset->value.as_uint64();
+                    if (offset + width <= op->args[1]->width) {
+                      return this->op(Op::Kind::Slice, {
+                        op->args[1],
+                        args[1],
+                        args[2]
+                      });
+                    } else if (offset >= op->args[1]->width) {
+                      return this->op(Op::Kind::Slice, {
+                        op->args[0],
+                        this->constant(BitString::from_uint(offset - op->args[1]->width)),
+                        args[2]
+                      });
+                    }
+                  }
+                break;
+                case Op::Kind::Slice:
+                break;
+              }
             }
           }
           break;
