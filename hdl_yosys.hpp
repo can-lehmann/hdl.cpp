@@ -263,7 +263,7 @@ namespace hdl {
             context.module.constant(BitString(a->width))
           });
         } else {
-          throw_error(Error, "Unreachable");
+          throw_error(Error, "Lowering unary operator \"" << RTLIL::id2cstr(cell->type) << "\" is not implemented");
         }
         
         context.set(port_y, y);
@@ -334,8 +334,14 @@ namespace hdl {
           y = context.module.op(Op::Kind::Add, { a, b });
         } else if (cell->type == ID($sub)) {
           y = context.module.op(Op::Kind::Sub, { a, b });
+        } else if (cell->type == ID($mul)) {
+          y = context.module.op(Op::Kind::Slice, {
+            context.module.op(Op::Kind::Mul, { a, b }),
+            context.module.constant(BitString::from_uint(0)),
+            context.module.constant(BitString::from_uint(internal_width))
+          });
         } else {
-          throw_error(Error, "Unreachable");
+          throw_error(Error, "Lowering binary operator \"" << RTLIL::id2cstr(cell->type) << "\" is not implemented");
         }
         
         context.set(port_y, y);
@@ -371,6 +377,9 @@ namespace hdl {
           throw_error(Error, "Width mismatch");
         }
         Reg* reg = context.module.reg(initial, lower(clk, context));
+        if (q.is_wire()) {
+          reg->name = RTLIL::id2cstr(q.as_wire()->name);
+        }
         context.set(q, reg);
         context.queue_reg(reg, d);
       }
@@ -599,7 +608,6 @@ namespace hdl {
           throw_error(Error, "Signal " << Yosys::log_signal(bit) << " has no driver");
         }
         
-        std::cout << bit.offset << std::endl;
         return context[bit];
       }
       
@@ -666,7 +674,9 @@ namespace hdl {
         Context context(hdl_module, _sigmap);
         
         for (const auto& [name, memory] : _ys_module->memories) {
-          context.memories[name] = hdl_module.memory(memory->width, memory->size);
+          Memory* hdl_memory = hdl_module.memory(memory->width, memory->size);
+          hdl_memory->name = RTLIL::id2cstr(memory->name);
+          context.memories[name] = hdl_memory;
         }
         
         for (RTLIL::Wire* wire : _ys_module->wires()) {

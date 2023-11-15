@@ -23,6 +23,10 @@ USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
 struct HdlBackend : public Backend {
+  enum class Mode {
+    TextIr, Verilog, Show
+  };
+
   HdlBackend(): Backend("hdl", "write design to hdl.cpp text IR") {}
   
   void execute(std::ostream* &file,
@@ -30,15 +34,58 @@ struct HdlBackend : public Backend {
                std::vector<std::string> args,
                Design* design) {
     
-    extra_args(file, filename, args, 1);
+    RTLIL::Module* module = design->top_module();
+    Mode mode = Mode::TextIr;
     
-    for (RTLIL::Module* module : design->modules()) {
-      hdl::yosys::Lowering lowering(module);
-      hdl::Module hdl_module(RTLIL::id2cstr(module->name));
-      lowering.into(hdl_module);
-      
-      hdl::textir::Printer printer(hdl_module);
-      printer.print(*file);
+    int it = 1;
+    while (it < args.size()) {
+      if (args[it] == "-top") {
+        it++;
+        module = design->module(RTLIL::escape_id(args[it]));
+        if (module == nullptr) {
+          throw hdl::Error("Module does not exist");
+        }
+        it++;
+      } else if (args[it] == "-textir") {
+        mode = Mode::TextIr;
+        it++;
+      } else if (args[it] == "-show") {
+        mode = Mode::Show;
+        it++;
+      } else if (args[it] == "-verilog") {
+        mode = Mode::Verilog;
+        it++;
+      } else {
+        break;
+      }
+    }
+    
+    if (module == nullptr) {
+      throw hdl::Error("Design does not have top module, specify manually using -top.");
+    }
+    
+    extra_args(file, filename, args, it);
+    
+    hdl::yosys::Lowering lowering(module);
+    hdl::Module hdl_module(RTLIL::id2cstr(module->name));
+    lowering.into(hdl_module);
+    
+    switch (mode) {
+      case Mode::TextIr: {
+        hdl::textir::Printer printer(hdl_module);
+        printer.print(*file);
+      }
+      break;
+      case Mode::Show: {
+        hdl::graphviz::Printer printer(hdl_module);
+        printer.print(*file);
+      }
+      break;
+      case Mode::Verilog: {
+        hdl::verilog::Printer printer(hdl_module);
+        printer.print(*file);
+      }
+      break;
     }
   }
   
