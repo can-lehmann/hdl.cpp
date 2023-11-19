@@ -627,6 +627,16 @@ namespace hdl {
                   }
                 break;
                 case Op::Kind::Slice:
+                  if (Constant* inner_constant_offset = dynamic_cast<Constant*>(op->args[1])) {
+                    size_t offset = constant_offset->value.as_uint64();
+                    size_t inner_offset = inner_constant_offset->value.as_uint64();
+                    
+                    return this->op(Op::Kind::Slice, {
+                      op->args[0],
+                      this->constant(BitString::from_uint(offset + inner_offset)),
+                      args[2]
+                    });
+                  }
                 break;
               }
             }
