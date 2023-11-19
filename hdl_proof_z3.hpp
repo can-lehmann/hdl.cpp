@@ -50,6 +50,16 @@ namespace hdl {
           _values.emplace(value, _context.bv_const(name.str().c_str(), value->width));
         }
         
+        void free(const Memory* memory) {
+          std::ostringstream name;
+          name << "memory" << _memories.size();
+          ::z3::sort sort = _context.array_sort(
+            _context.int_sort(),
+            _context.bv_sort(memory->width)
+          );
+          _memories.emplace(memory, _context.constant(name.str().c_str(), sort));
+        }
+        
         void define(const Value* value, ::z3::expr expr) {
           // TODO: Check sort
           _values.emplace(value, expr);
