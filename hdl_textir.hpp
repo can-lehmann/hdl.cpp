@@ -259,6 +259,9 @@ namespace hdl {
       void load(const char* path) const {
         std::ifstream file;
         file.open(path);
+        if (!file) {
+          throw_error(Error, "Failed to open \"" << path << "\"");
+        }
         read(file);
       }
     };
