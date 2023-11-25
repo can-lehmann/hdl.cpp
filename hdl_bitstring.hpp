@@ -89,6 +89,42 @@ namespace hdl {
       return bit_string;
     }
     
+    static BitString from_base_log2(size_t base_log2, const std::string& string) {
+      BitString bit_string(base_log2 * string.size());
+      size_t offset = base_log2 * string.size();
+      size_t base = 1 << base_log2;
+      for (char chr : string) {
+        size_t digit = 0;
+        if (chr >= '0' && chr <= '9') {
+          digit = chr - '0';
+        } else if (chr >= 'a' && chr <= 'z') {
+          digit = chr - 'a' + 10;
+        } else if (chr >= 'A' && chr <= 'Z') {
+          digit = chr - 'A' + 10;
+        } else {
+          throw_error(Error, "Invalid digit " << chr << " for base " << base);
+        }
+        
+        if (digit >= base) {
+          throw_error(Error, "Invalid digit " << chr << " for base " << base);
+        }
+        
+        offset -= base_log2;
+        for (size_t it = 0; it < base_log2; it++) {
+          bit_string.set(offset + it, digit & (1 << it));
+        }
+      }
+      return bit_string;
+    }
+    
+    static BitString from_oct(const std::string& string) {
+      return from_base_log2(3, string);
+    }
+    
+    static BitString from_hex(const std::string& string) {
+      return from_base_log2(4, string);
+    }
+    
     inline size_t width() const { return _width; }
     
     bool at(size_t index) const {

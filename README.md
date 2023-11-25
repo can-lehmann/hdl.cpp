@@ -47,6 +47,9 @@ The following constructors are available:
 - `BitString(const std::string& string)` where `string` is a binary number
 - `static BitString from_bool(bool value)` where the resulting BitString is of width 1
 - `template <class T> static BitString from_uint(T value)` where the resulting BitString is of width `sizeof(T) * 8`
+- `BitString from_base_log2(size_t base_log2, const std::string& string)` where `string` is a number in base $2^{\texttt{base\_log2}}$
+- `BitString from_oct(const std::string& string)` where `string` is an octal number
+- `BitString from_hex(const std::string& string)` where `string` is a hexadecimal number
 
 BitStrings do not record the signedness of their value.
 Instead signedness is part of the operators applied on the BitString.

@@ -39,6 +39,31 @@ int main() {
     assert(BitString::from_uint(uint64_t(~0)) == BitString("1111111111111111111111111111111111111111111111111111111111111111"));
   });
   
+  Test("from_base_log2").run([](){
+    assert(BitString::from_base_log2(1, "000001010011100101110111") == BitString("000001010011100101110111"));
+    assert(BitString::from_base_log2(2, "0123") == BitString("00011011"));
+    assert(BitString::from_base_log2(3, "01234567") == BitString("000001010011100101110111"));
+    assert(BitString::from_base_log2(4, "0123456789abcdef") == BitString("0000000100100011010001010110011110001001101010111100110111101111"));
+    assert(BitString::from_base_log2(4, "0123456789ABCDEF") == BitString("0000000100100011010001010110011110001001101010111100110111101111"));
+    assert(BitString::from_base_log2(5, "0") == BitString("00000"));
+  });
+  
+  Test("from_oct").run([](){
+    assert(BitString::from_oct("0") == BitString("000"));
+    assert(BitString::from_oct("7") == BitString("111"));
+    assert(BitString::from_oct("01234567") == BitString("000001010011100101110111"));
+  });
+  
+  Test("from_hex").run([](){
+    assert(BitString::from_hex("0") == BitString("0000"));
+    assert(BitString::from_hex("A") == BitString("1010"));
+    assert(BitString::from_hex("f") == BitString("1111"));
+    assert(BitString::from_hex("Abc") == BitString("101010111100"));
+    assert(BitString::from_hex("10") == BitString("00010000"));
+    assert(BitString::from_hex("0123456789abcdef") == BitString("0000000100100011010001010110011110001001101010111100110111101111"));
+    assert(BitString::from_hex("0123456789ABCDEF") == BitString("0000000100100011010001010110011110001001101010111100110111101111"));
+  });
+  
   Test("width").run([](){
     for (size_t width : {1, 8, 10, 16, 32, 63, 64, 100, 1000}) {
       assert(BitString(width).width() == width);
