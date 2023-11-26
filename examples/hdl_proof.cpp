@@ -14,6 +14,7 @@
 
 #include <iostream>
 #include "../hdl_proof.hpp"
+#include "../hdl_flatten.hpp"
 
 int main() {
   hdl::Module module("top");
@@ -30,10 +31,15 @@ int main() {
     })
   });
   
+  hdl::flatten::Flattening flattening(module);
+  flattening.define(a, flattening.split(a));
+  flattening.define(b, flattening.split(b));
+  flattening.flatten(eq);
+  
   hdl::proof::CnfBuilder builder;
-  builder.free(a);
-  builder.free(b);
-  builder.require(eq, hdl::BitString::from_bool(false));
+  builder.free(flattening[a]);
+  builder.free(flattening[b]);
+  builder.require(flattening[eq], hdl::BitString::from_bool(false));
   hdl::proof::Cnf cnf = builder.cnf();
   std::cout << "CNF: " << cnf.size() << std::endl;
   hdl::proof::Cnf simplified = cnf.simplify();

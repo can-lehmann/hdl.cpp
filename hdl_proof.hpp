@@ -23,6 +23,12 @@
 
 #include "hdl.hpp"
 
+#define throw_error(Error, msg) { \
+  std::ostringstream error_message; \
+  error_message << msg; \
+  throw Error(error_message.str()); \
+}
+
 namespace hdl {
   namespace proof {
     class Cnf {
@@ -157,61 +163,6 @@ namespace hdl {
           add_clause({!lit});
         }
         return lit;
-      }
-      
-      std::vector<Literal> f_not(const std::vector<Literal>& a) {
-        std::vector<Literal> result(a.size());
-        for (size_t it = 0; it < a.size(); it++) {
-          result[it] = !a[it];
-        }
-        return result;
-      }
-      
-      Literal f_eq(const std::vector<Literal>& a, const std::vector<Literal>& b) {
-        if (a.size() != b.size()) {
-          throw Error("");
-        }
-        Literal result = f_const(true);
-        for (size_t it = 0; it < a.size(); it++) {
-          result = f_and(result, f_eq(a[it], b[it]));
-        }
-        return result;
-      }
-      
-      Literal f_lt_u(const std::vector<Literal>& a, const std::vector<Literal>& b) {
-        if (a.size() != b.size()) {
-          throw Error("");
-        }
-        
-        Literal active = f_const(true);
-        Literal result = f_const(false);
-        for (size_t it = a.size(); it-- > 0; ) {
-          result = f_or(result, f_and(active, f_and(!a[it], b[it])));
-          active = f_and(active, !f_and(a[it], !b[it]));
-        }
-        
-        return result;
-      }
-      
-      std::vector<Literal> f_add_carry(const std::vector<Literal>& a, const std::vector<Literal>& b, Literal carry) {
-        if (a.size() != b.size()) {
-          throw Error("");
-        }
-        
-        std::vector<Literal> sum(a.size());
-        for (size_t it = 0; it < a.size(); it++) {
-          sum[it] = f_xor(carry, f_xor(a[it], b[it]));
-          carry = f_or(f_or(f_and(carry, b[it]), f_and(a[it], carry)), f_and(a[it], b[it]));
-        }
-        return sum;
-      }
-      
-      std::vector<Literal> f_add(const std::vector<Literal>& a, const std::vector<Literal>& b) {
-        return f_add_carry(a, b, f_const(false));
-      }
-      
-      std::vector<Literal> f_sub(const std::vector<Literal>& a, const std::vector<Literal>& b) {
-        return f_add_carry(a, f_not(b), f_const(true));
       }
       
       #undef binop
@@ -410,82 +361,80 @@ namespace hdl {
     class CnfBuilder {
     private:
       Cnf _cnf;
-      std::unordered_map<const Value*, std::vector<Cnf::Literal>> _values;
+      std::unordered_map<const Value*, Cnf::Literal> _values;
+      
+      void expect_bit(const Value* value) {
+        if (value->width != 1) {
+          throw_error(Error,
+            "All values must have width 1, but got value of width " << value->width << ". " <<
+            "Use hdl::flatten::Flattening to flatten circuit."
+          );
+        }
+      }
     public:
       CnfBuilder() {}
       
       const Cnf& cnf() const { return _cnf; }
       
-      void free(const Value* value) {
-        std::vector<Cnf::Literal> result(value->width);
-        for (Cnf::Literal& lit : result) {
-          lit = _cnf.var();
+      void free(const Value* bit) {
+        expect_bit(bit);
+        _values[bit] = _cnf.var();
+      }
+      
+      void free(const std::vector<Value*>& bits) {
+        for (Value* bit : bits) {
+          free(bit);
         }
-        _values[value] = result;
       }
       
       void build(const Value* value) {
+        expect_bit(value);
+        
         if (_values.find(value) != _values.end()) {
           return;
         }
         
-        std::vector<Cnf::Literal> result(value->width);
+        Cnf::Literal result;
         
         if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
-          for (size_t it = 0; it < constant->value.width(); it++) {
-            result[it] = _cnf.f_const(constant->value[it]);
-          }
+          result = _cnf.f_const(constant->value[0]);
         } else if (const Op* op = dynamic_cast<const Op*>(value)) {
           for (const Value* arg : op->args) {
             build(arg);
           }
           
           #define arg(index) _values.at(op->args[index])
-
-          #define elementwise(build_expr) \
-            for (size_t it = 0; it < op->width; it++) { \
-              result[it] = _cnf.build_expr; \
-            }
           
           switch (op->kind) {
-            case Op::Kind::And: elementwise(f_and(arg(0)[it], arg(1)[it])); break;
-            case Op::Kind::Or: elementwise(f_or(arg(0)[it], arg(1)[it])); break;
-            case Op::Kind::Xor: elementwise(f_xor(arg(0)[it], arg(1)[it])); break;
-            case Op::Kind::Not: elementwise(f_not(arg(0)[it])); break;
-            case Op::Kind::Add: result = _cnf.f_add(arg(0), arg(1)); break;
-            case Op::Kind::Sub: result = _cnf.f_sub(arg(0), arg(1)); break;
-            
-            case Op::Kind::Eq: result[0] = _cnf.f_eq(arg(0), arg(1)); break;
-            case Op::Kind::LtU: result[0] = _cnf.f_lt_u(arg(0), arg(1)); break;
-            
-            case Op::Kind::LeU: result[0] = _cnf.f_or(_cnf.f_lt_u(arg(0), arg(1)), _cnf.f_eq(arg(0), arg(1))); break;
-            
-            case Op::Kind::Select: elementwise(f_select(arg(0)[0], arg(1)[it], arg(2)[it])); break;
-            
-            default: throw Error("Op not implemented");
+            case Op::Kind::And: result = _cnf.f_and(arg(0), arg(1)); break;
+            case Op::Kind::Or: result = _cnf.f_or(arg(0), arg(1)); break;
+            case Op::Kind::Xor: result = _cnf.f_xor(arg(0), arg(1)); break;
+            case Op::Kind::Not: result = _cnf.f_not(arg(0)); break;
+            default: throw_error(Error, "Operator " << op->kind << " is not a gate");
           }
           
-          #undef elementwise
           #undef arg
         } else {
-          throw Error("");
+          throw Error("Unable to build value");
         }
         
         _values[value] = result;
       }
       
-      void require(const Value* value, const BitString& string) {
-        if (value->width != string.width()) {
-          throw Error("");
+      void require(const std::vector<Value*> bits, const BitString& string) {
+        if (bits.size() != string.width()) {
+          throw_error(Error,
+            "require expected BitString to be of the same width as value, but got " <<
+            string.width() << " and " << bits.size()
+          );
         }
         
-        build(value);
-        const std::vector<Cnf::Literal>& literals = _values.at(value);
-        for (size_t it = 0; it < value->width; it++) {
+        for (size_t it = 0; it < bits.size(); it++) {
+          build(bits[it]);
           if (string[it]) {
-            _cnf.add_clause({literals[it]});
+            _cnf.add_clause({_values.at(bits[it])});
           } else {
-            _cnf.add_clause({!literals[it]});
+            _cnf.add_clause({!_values.at(bits[it])});
           }
         }
       }
@@ -493,5 +442,7 @@ namespace hdl {
     };
   }
 }
+
+#undef throw_error
 
 #endif
