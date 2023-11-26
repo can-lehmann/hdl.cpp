@@ -169,7 +169,7 @@ namespace hdl {
       return kind == other.kind && args == other.args;
     }
     
-    BitString eval(const BitString** values) const {
+    BitString eval(BitString const** values) const {
       #define arg(index) (*(values[(index)]))
       #define binop(op) result = arg(0) op arg(1);
       
@@ -199,6 +199,22 @@ namespace hdl {
       #undef arg
       
       return result;
+    }
+    
+    BitString eval(const std::vector<BitString>& values) const {
+      if (values.size() != args.size()) {
+        throw_error(Error,
+          "Operator " << KIND_NAMES[size_t(kind)] <<
+          " expects " << args.size() << " arguments, but " <<
+          "eval(const std::vector<BitString>&) got " << values.size()
+        );
+      }
+      
+      BitString const* value_ptrs[MAX_ARG_COUNT] = {nullptr};
+      for (size_t it = 0; it < values.size(); it++) {
+        value_ptrs[it] = &values[it];
+      }
+      return eval(value_ptrs);
     }
   };
   
@@ -1182,6 +1198,10 @@ namespace hdl {
             
             stream << "  w" << write_id << " -> " << (_split_regs ? 'm' : 'n') << ctx[memory] << ";\n";
           }
+        }
+        
+        for (const Output& output : _module.outputs()) {
+          print(output.value, ctx);
         }
         
         stream << "}\n";

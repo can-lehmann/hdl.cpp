@@ -10,7 +10,12 @@ examples/hdl_proof_z3
 tests/test_hdl
 tests/test_bitstring
 tests/test_textir
+tests/test_flatten
+tests/graphs/*
+!tests/graphs/.empty
 tools/*.v
+tools/*.textir
+tools/*.svg
 tools/hdl.d
 tools/hdl.so
 assets/

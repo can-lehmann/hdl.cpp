@@ -248,6 +248,13 @@ int main() {
     assert(BitString("100000000000000000000000000000000").as_uint64() == uint64_t(1) << 32);
   });
   
+  Test("reverse_words").run([](){
+    assert(BitString("011110").reverse_words(2) == BitString("101101"));
+    assert(BitString("011110").reverse_words(3) == BitString("110011"));
+    assert(BitString("011110").reverse_words(6) == BitString("011110"));
+    assert(BitString::from_hex("abcdef").reverse_words(4) == BitString::from_hex("fedcba"));
+  });
+  
   
   return 0;
 }

@@ -430,6 +430,20 @@ namespace hdl {
       }
       return at(0);
     }
+    
+    BitString reverse_words(size_t word_size) const {
+      if (_width % word_size != 0) {
+        throw_error(Error, "Width must be a multiple of word_size");
+      }
+      
+      BitString result(_width);
+      for (size_t word_it = 0; word_it < _width; word_it += word_size) {
+        for (size_t bit_it = 0; bit_it < word_size; bit_it++) {
+          result.set(_width - word_size - word_it + bit_it, at(word_it + bit_it));
+        }
+      }
+      return result;
+    }
   };
   
   std::ostream& operator<<(std::ostream& stream, const BitString& bit_string) {
