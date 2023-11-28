@@ -86,6 +86,14 @@ namespace hdl {
     
     static constexpr const size_t MAX_ARG_COUNT = 3;
     
+    static bool is_commutative(Kind kind) {
+      return kind == Kind::And ||
+             kind == Kind::Or ||
+             kind == Kind::Xor ||
+             kind == Kind::Add ||
+             kind == Kind::Eq;
+    }
+    
     const Kind kind;
     const std::vector<Value*> args;
     
@@ -463,7 +471,19 @@ namespace hdl {
       return memory;
     }
     
-    Value* op(Op::Kind kind, const std::vector<Value*>& args) {
+    Value* op(Op::Kind kind, std::vector<Value*> args) {
+      if (Op::is_commutative(kind)) {
+        bool lhs_const = dynamic_cast<Constant*>(args[0]) != nullptr;
+        bool rhs_const = dynamic_cast<Constant*>(args[1]) != nullptr;
+        if (lhs_const == rhs_const) {
+          if (args[0] > args[1]) {
+            std::swap(args[0], args[1]);
+          }
+        } else if (rhs_const) {
+          std::swap(args[0], args[1]);
+        }
+      }
+      
       Op op(kind, args);
       bool is_constant = true;
       for (const Value* arg : args) {
@@ -480,6 +500,8 @@ namespace hdl {
         }
         return constant(op.eval(arg_values));
       } else {
+        // For the commutative operations, we only need to check if the left hand side
+        // is constant, as constants will always be moved to the left hand side of the operator.
         switch (kind) {
           case Op::Kind::And:
             if (args[0] == args[1]) {
@@ -489,12 +511,6 @@ namespace hdl {
                 return constant;
               } else if (constant->value.is_all_ones()) {
                 return args[1];
-              }
-            } else if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
-              if (constant->value.is_zero()) {
-                return constant;
-              } else if (constant->value.is_all_ones()) {
-                return args[0];
               }
             }
           break;
@@ -507,17 +523,17 @@ namespace hdl {
               } else if (constant->value.is_all_ones()) {
                 return constant;
               }
-            } else if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
-              if (constant->value.is_zero()) {
-                return args[0];
-              } else if (constant->value.is_all_ones()) {
-                return constant;
-              }
             }
           break;
           case Op::Kind::Xor:
             if (args[0] == args[1]) {
               return constant(BitString(args[0]->width));
+            } else if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+              if (constant->value.is_zero()) {
+                return args[1];
+              } else if (constant->value.is_all_ones()) {
+                return this->op(Op::Kind::Not, {args[1]});
+              }
             }
           break;
           case Op::Kind::Not:
@@ -531,11 +547,6 @@ namespace hdl {
             if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
               if (constant->value.is_zero()) {
                 return args[1];
-              }
-            }
-            if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
-              if (constant->value.is_zero()) {
-                return args[0];
               }
             }
           break;
