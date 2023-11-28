@@ -124,6 +124,31 @@ hdl::verilog::Printer printer(module);
 printer.print(std::cout);
 ```
 
+### Serialization
+
+`hdl::textir::Printer` is used to serialize modules.
+
+```cpp
+hdl::textir::Printer textir_printer(module);
+textir_printer.save("top.textir");
+```
+
+Here is the `textir` file for the counter module from above:
+
+```
+0 = input "clock" 1
+1 = reg 4'b0 ""
+2 = constant 4'b1
+3 = Add 1 2
+next 1 0 3
+output "counter" 1
+```
+
+You can use a `hdl::textir::Reader` to deserialize a module from disk or a string.
+
+- `static Module textir::Reader::read_module(std::istream& stream)`
+- `static Module textir::Reader::load_module(const char* path)`
+
 ### Theorem Proving
 
 hdl.cpp supports theorem proving using Z3 and using generic SAT solvers using bit-blasting.
@@ -134,6 +159,15 @@ Check out the `hdl_proof_z3.cpp` and `hdl_proof.cpp` examples respectively.
 When writing test cases for analysis passes, it may be cumbersome to use the `hdl::Module` API.
 This is why hdl.cpp provides a domain specific language for high level hardware description inside C++.
 Check out the `hdl_dsl.cpp` example.
+
+### Yosys Plugin
+
+hdl.cpp provides a yosys plugin which can be used as a verilog frontend.
+It can convert the RTLIL intermediate language to a `textir` file.
+
+```bash
+yosys -m hdl.so -p "read_verilog top.v; proc; flatten; opt_expr; opt_clean; write_hdl -top top top.textir"
+```
 
 ## License
 
