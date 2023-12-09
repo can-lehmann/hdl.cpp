@@ -68,7 +68,7 @@ namespace hdl {
         std::map<RTLIL::SigBit, Value*> values;
         std::map<RTLIL::IdString, Memory*> memories;
         std::unordered_set<RTLIL::Cell*> cells;
-        std::deque<std::pair<Reg*, RTLIL::SigSpec>> open_regs;
+        std::deque<std::pair<Reg*, RTLIL::Cell*>> open_regs;
         
         Module& module;
         Yosys::SigMap& sigmap;
@@ -102,16 +102,16 @@ namespace hdl {
           return values.find(sigmap(bit)) != values.end();
         }
         
-        void queue_reg(Reg* reg, const RTLIL::SigSpec& next) {
-          open_regs.emplace_back(reg, next);
+        void queue_reg(Reg* reg, RTLIL::Cell* cell) {
+          open_regs.emplace_back(reg, cell);
         }
         
         bool has_open_regs() const {
           return !open_regs.empty();
         }
         
-        std::pair<Reg*, RTLIL::SigSpec> pop_reg() {
-          std::pair<Reg*, RTLIL::SigSpec> reg = open_regs.front();
+        std::pair<Reg*, RTLIL::Cell*> pop_reg() {
+          std::pair<Reg*, RTLIL::Cell*> reg = open_regs.front();
           open_regs.pop_front();
           return reg;
         }
@@ -119,7 +119,10 @@ namespace hdl {
       
       Value* extend(Value* value, size_t target, bool is_signed, Context& context) {
         if (target < value->width) {
-          throw_error(Error, "Unable to shrink");
+          throw_error(Error,
+            "Unable to shrink value of width " << value->width <<
+            " to width " << target
+          );
         } 
         
         if (target > value->width) {
@@ -288,7 +291,9 @@ namespace hdl {
         }
         
         a = extend(a, internal_width, a_signed, context);
-        b = extend(b, internal_width, b_signed, context);
+        if (!cell->type.in(ID($shl), ID($sshl), ID($shr), ID($sshr))) {
+          b = extend(b, internal_width, b_signed, context);
+        }
         
         // Eval
         
@@ -366,8 +371,6 @@ namespace hdl {
       }
       
       void lower_dff(RTLIL::Cell* cell, Context& context) {
-        RTLIL::SigSpec clk = cell->getPort(RTLIL::ID::CLK);
-        RTLIL::SigSpec d = cell->getPort(RTLIL::ID::D);
         RTLIL::SigSpec q = cell->getPort(RTLIL::ID::Q);
         
         size_t width = cell->getParam(RTLIL::ID::WIDTH).as_int();
@@ -376,12 +379,12 @@ namespace hdl {
         if (initial.width() != width) {
           throw_error(Error, "Width mismatch");
         }
-        Reg* reg = context.module.reg(initial, lower(clk, context));
+        Reg* reg = context.module.reg(initial, nullptr);
         if (q.is_wire()) {
           reg->name = RTLIL::id2cstr(q.as_wire()->name);
         }
         context.set(q, reg);
-        context.queue_reg(reg, d);
+        context.queue_reg(reg, cell);
       }
       
       void lower_mux(RTLIL::Cell* cell, Context& context) {
@@ -564,13 +567,13 @@ namespace hdl {
           std::cout << std::endl;
         }
         
-        if (cell->type == ID($dff)) {
+        if (cell->type.in(ID($dff), ID($dffe), ID($sdff), ID($sdffe))) {
           lower_dff(cell, context);
         } else if (cell->type == ID($mux)) {
           lower_mux(cell, context);
         } else if (cell->type == ID($pmux)) {
           lower_pmux(cell, context);
-        } else if (cell->type == ID($memrd)) {
+        } else if (cell->type == ID($memrd) || cell->type == ID($memrd_v2)) {
           lower_memrd(cell, context);
         } else if (cell->type == ID($memwr_v2)) {
           lower_memwr_v2(cell, context);
@@ -697,9 +700,238 @@ namespace hdl {
         }
         
         while (context.has_open_regs()) {
-          auto [reg, next] = context.pop_reg();
-          reg->next = lower(next, context);
+          auto [reg, cell] = context.pop_reg();
+          
+          RTLIL::SigSpec clk = cell->getPort(RTLIL::ID::CLK);
+          RTLIL::SigSpec d = cell->getPort(RTLIL::ID::D);
+          
+          reg->clock = lower(clk, context);
+          reg->next = lower(d, context);
+          
+          if (cell->type.in(ID($dffe), ID($sdffe))) {
+            RTLIL::SigSpec en = cell->getPort(RTLIL::ID::EN);
+            
+            Value* high = reg->next;
+            Value* low = reg;
+            if (cell->getParam(RTLIL::ID::EN_POLARITY).is_fully_zero()) {
+              std::swap(high, low);
+            }
+            
+            reg->next = hdl_module.op(Op::Kind::Select, {
+              lower(en, context), high, low
+            });
+          }
+          
+          if (cell->type.in(ID($sdff), ID($sdffe))) {
+            RTLIL::SigSpec srst = cell->getPort(RTLIL::ID::SRST);
+            
+            Value* high = hdl_module.constant(lower(cell->getParam(RTLIL::ID::SRST_VALUE), context));
+            Value* low = reg->next;
+            if (cell->getParam(RTLIL::ID::SRST_POLARITY).is_fully_zero()) {
+              std::swap(high, low);
+            }
+            
+            reg->next = hdl_module.op(Op::Kind::Select, {
+              lower(srst, context), high, low
+            });
+          }
         }
+      }
+    };
+    
+    class Builder {
+    private:
+      struct RegWires {
+        RTLIL::Wire* clock = nullptr;
+        RTLIL::Wire* next = nullptr;
+        
+        RegWires() {}
+        RegWires(RTLIL::Wire* _clock, RTLIL::Wire* _next):
+          clock(_clock), next(_next) {}
+      };
+      
+      RTLIL::Module* _ys_module = nullptr;
+      std::map<const Value*, RTLIL::SigSpec> _values;
+      std::map<const Memory*, RTLIL::Memory*> _memories;
+      std::map<const Reg*, RegWires> _regs;
+    public:
+      Builder(RTLIL::Module* ys_module): _ys_module(ys_module) {}
+      
+      RTLIL::Const build(const BitString& bit_string) {
+        std::vector<RTLIL::State> bits;
+        bits.reserve(bit_string.width());
+        for (size_t it = 0; it < bit_string.width(); it++) {
+          bits.push_back(bit_string[it] ? RTLIL::S1 : RTLIL::S0);
+        }
+        return bits;
+      }
+      
+      RTLIL::SigSpec build(const Value* value) {
+        if (_values.find(value) != _values.end()) {
+          return _values.at(value);
+        }
+        
+        RTLIL::SigSpec spec;
+        if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
+          spec = build(constant->value);
+        } else if (const Input* input = dynamic_cast<const Input*>(value)) {
+          RTLIL::Wire* wire = _ys_module->addWire(
+            RTLIL::escape_id(input->name.c_str()),
+            input->width
+          );
+          wire->port_input = true;
+          spec = wire;
+        } else if (const Op* op = dynamic_cast<const Op*>(value)) {
+          #define arg(index) build(op->args[index])
+          
+          RTLIL::Wire* wire = _ys_module->addWire(NEW_ID, value->width);
+          switch (op->kind) {
+            case Op::Kind::And: _ys_module->addAdd(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::Or: _ys_module->addOr(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::Xor: _ys_module->addXor(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::Not: _ys_module->addNot(NEW_ID, arg(0), wire); break;
+            case Op::Kind::Add: _ys_module->addAdd(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::Sub: _ys_module->addSub(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::Mul:
+              _ys_module->addMul(NEW_ID,
+                RTLIL::SigSpec({RTLIL::SigSpec(build(BitString(op->width - op->args[0]->width))), arg(0)}),
+                RTLIL::SigSpec({RTLIL::SigSpec(build(BitString(op->width - op->args[1]->width))), arg(1)}),
+                wire
+              );
+            break;
+            case Op::Kind::Eq: _ys_module->addEq(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::LtU: _ys_module->addLt(NEW_ID, arg(0), arg(1), wire, false); break;
+            case Op::Kind::LtS: _ys_module->addLt(NEW_ID, arg(0), arg(1), wire, true); break;
+            case Op::Kind::LeU: _ys_module->addLe(NEW_ID, arg(0), arg(1), wire, false); break;
+            case Op::Kind::LeS: _ys_module->addLe(NEW_ID, arg(0), arg(1), wire, true); break;
+            case Op::Kind::Concat: _ys_module->connect(wire, {arg(0), arg(1)}); break;
+            case Op::Kind::Slice: {
+              RTLIL::SigSpec spec = _ys_module->Shr(NEW_ID, arg(0), arg(1));
+              std::vector<RTLIL::SigBit> bits;
+              for (size_t it = 0; it < value->width; it++) {
+                bits.push_back(spec[it]);
+              }
+              _ys_module->connect(wire, bits);
+            }
+            break;
+            case Op::Kind::Shl: _ys_module->addShl(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::ShrU: _ys_module->addShr(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::ShrS: _ys_module->addSshr(NEW_ID, arg(0), arg(1), wire); break;
+            case Op::Kind::Select: _ys_module->addMux(NEW_ID, arg(2), arg(1), arg(0), wire); break;
+          }
+          spec = wire;
+          
+          #undef arg
+        } else if (const Memory::Read* read = dynamic_cast<const Memory::Read*>(value)) {
+          RTLIL::Cell* cell = _ys_module->addCell(NEW_ID, ID($memrd_v2));
+          
+          std::string memory_name = RTLIL::id2cstr(_memories.at(read->memory)->name);
+          cell->parameters[RTLIL::ID::MEMID] = RTLIL::Const(memory_name);
+          cell->parameters[RTLIL::ID::ABITS] = RTLIL::Const(read->address->width);
+          cell->parameters[RTLIL::ID::WIDTH] = RTLIL::Const(value->width);
+          
+          // Clock
+          cell->parameters[RTLIL::ID::CLK_ENABLE] = RTLIL::Const(0);
+          cell->parameters[RTLIL::ID::CLK_POLARITY] = RTLIL::Const(0);
+          
+          // Masks
+          cell->parameters[RTLIL::ID::TRANSPARENCY_MASK] = RTLIL::Const(0, read->memory->writes.size());
+          cell->parameters[RTLIL::ID::COLLISION_X_MASK] = RTLIL::Const(0, read->memory->writes.size());
+          
+          // Reset
+          cell->parameters[RTLIL::ID::ARST_VALUE] = RTLIL::Const(0, read->width);
+          cell->parameters[RTLIL::ID::SRST_VALUE] = RTLIL::Const(0, read->width);
+          cell->parameters[RTLIL::ID::INIT_VALUE] = RTLIL::Const(0, read->width);
+          cell->parameters[RTLIL::ID::CE_OVER_SRST] = RTLIL::Const(0, 1);
+          
+          RTLIL::Wire* wire = _ys_module->addWire(NEW_ID, value->width);
+          
+          cell->setPort(RTLIL::ID::CLK, RTLIL::Const(0, 1));
+          cell->setPort(RTLIL::ID::EN, RTLIL::Const(1, 1));
+          cell->setPort(RTLIL::ID::ADDR, build(read->address));
+          cell->setPort(RTLIL::ID::DATA, wire);
+          cell->setPort(RTLIL::ID::ARST, RTLIL::Const(0, 1));
+          cell->setPort(RTLIL::ID::SRST, RTLIL::Const(0, 1));
+          
+          spec = wire;
+        } else {
+          throw_error(Error, "Unknown value type");
+        }
+        
+        _values[value] = spec;
+        return spec;
+      }
+      
+      void build(const Memory* memory, const Memory::Write& write, size_t port_id) {
+        RTLIL::Cell* cell = _ys_module->addCell(NEW_ID, ID($memwr_v2));
+        
+        std::string memory_name = RTLIL::id2cstr(_memories.at(memory)->name);
+        cell->parameters[RTLIL::ID::MEMID] = RTLIL::Const(memory_name);
+        cell->parameters[RTLIL::ID::ABITS] = RTLIL::Const(write.address->width);
+        cell->parameters[RTLIL::ID::WIDTH] = RTLIL::Const(write.value->width);
+        
+        // Clock
+        cell->parameters[RTLIL::ID::CLK_ENABLE] = RTLIL::Const(1);
+        cell->parameters[RTLIL::ID::CLK_POLARITY] = RTLIL::Const(1, 1);
+        
+        // Masks
+        cell->parameters[RTLIL::ID::PORTID] = RTLIL::Const(port_id, memory->writes.size());
+        cell->parameters[RTLIL::ID::PRIORITY_MASK] = RTLIL::Const(0, memory->writes.size());
+        
+        cell->setPort(RTLIL::ID::CLK, build(write.clock));
+        cell->setPort(RTLIL::ID::EN, build(write.enable).repeat(write.value->width));
+        cell->setPort(RTLIL::ID::ADDR, build(write.address));
+        cell->setPort(RTLIL::ID::DATA, build(write.value));
+      }
+      
+      void build(const Module& module) {
+        for (Input* input : module.inputs()) {
+          build(input);
+        }
+        
+        for (Memory* memory : module.memories()) {
+          RTLIL::Memory mem;
+          mem.width = memory->width;
+          mem.start_offset = 0;
+          mem.size = memory->size;
+          _memories[memory] = _ys_module->addMemory(NEW_ID, &mem);
+        }
+        
+        for (Reg* reg : module.regs()) {
+          RTLIL::Wire* clock_wire = _ys_module->addWire(NEW_ID, reg->clock->width);
+          RTLIL::Wire* next_wire = _ys_module->addWire(NEW_ID, reg->next->width);
+          
+          RTLIL::IdString name = reg->name.size() > 0 ? RTLIL::escape_id(reg->name) : NEW_ID;
+          RTLIL::Wire* wire = _ys_module->addWire(name, reg->width);
+          
+          wire->attributes[RTLIL::ID::init] = build(reg->initial);
+          _ys_module->addDff(NEW_ID, clock_wire, next_wire, wire);
+          _regs[reg] = RegWires(clock_wire, next_wire);
+          _values[reg] = wire;
+        }
+        
+        for (Reg* reg : module.regs()) {
+          _ys_module->connect(_regs.at(reg).clock, build(reg->clock));
+          _ys_module->connect(_regs.at(reg).next, build(reg->next));
+        }
+        
+        for (Memory* memory : module.memories()) {
+          for (size_t it = 0; it < memory->writes.size(); it++) {
+            build(memory, memory->writes[it], it);
+          }
+        }
+        
+        for (const Output& output : module.outputs()) {
+          RTLIL::Wire* wire = _ys_module->addWire(
+            RTLIL::escape_id(output.name.c_str()),
+            output.value->width
+          );
+          wire->port_output = true;
+          
+          _ys_module->connect(wire, build(output.value));
+        }
+        
+        _ys_module->fixup_ports();
       }
     };
     

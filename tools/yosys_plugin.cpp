@@ -91,4 +91,26 @@ struct HdlBackend : public Backend {
   
 } HdlBackend;
 
+struct HdlFrontend : public Frontend {
+  HdlFrontend(): Frontend("hdl", "read module from hdl.cpp text IR") {}
+  
+  void execute(std::istream*& file,
+               std::string filename,
+               std::vector<std::string> args,
+               RTLIL::Design* design) {
+    
+    extra_args(file, filename, args, 1);
+    
+    hdl::Module hdl_module = hdl::textir::Reader::read_module(*file);
+    
+    RTLIL::Module* ys_module = new RTLIL::Module();
+    ys_module->name = RTLIL::escape_id(hdl_module.name().c_str());
+    design->add(ys_module);
+    
+    hdl::yosys::Builder builder(ys_module);
+    builder.build(hdl_module);
+  }
+  
+} HdlFrontend;
+
 PRIVATE_NAMESPACE_END
