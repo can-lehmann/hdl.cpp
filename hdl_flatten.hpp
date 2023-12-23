@@ -223,6 +223,10 @@ namespace hdl {
             bool bit = constant->value.at(it);
             bits.push_back(_module.constant(BitString::from_bool(bit)));
           }
+        } else if (Unknown* unknown = dynamic_cast<Unknown*>(value)) {
+          for (size_t it = 0; it < value->width; it++) {
+            bits.push_back(_module.unknown());
+          }
         } else if (Op* op = dynamic_cast<Op*>(value)) {
           for (Value* arg : op->args) {
             flatten(arg);

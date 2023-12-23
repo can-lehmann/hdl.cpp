@@ -74,6 +74,9 @@ private:
     if (matches(hdl::Constant, a_constant, a)) {
       require(hdl::Constant, b_constant, b);
       return a_constant->value == b_constant->value;
+    } else if (matches(hdl::Unknown, a_unknown, a)) {
+      require(hdl::Unknown, b_unknown, b);
+      return a->width == b->width;
     } else if (matches(hdl::Op, a_op, a)) {
       require(hdl::Op, b_op, b);
       
@@ -168,6 +171,13 @@ int main() {
   Test("input").run([](){
     hdl::Module module("top");
     module.output("out", module.input("in", 8));
+    
+    check(module);
+  });
+  
+  Test("unknown").run([](){
+    hdl::Module module("top");
+    module.output("out", module.unknown(8));
     
     check(module);
   });

@@ -219,6 +219,10 @@ namespace hdl {
             BitString bit_string = read_bit_string(stream);
             if (!has_id) { throw_error(Error, "Does not have id"); }
             values[id] = _module.constant(bit_string);
+          } else if (cmd == "unknown") {
+            size_t width = read_size(stream);
+            if (!has_id) { throw_error(Error, "Does not have id"); }
+            values[id] = _module.unknown(width);
           } else {
             Op::Kind kind;
             bool has_kind = false;
@@ -330,6 +334,9 @@ namespace hdl {
         if (Constant* constant = dynamic_cast<Constant*>(value)) {
           context.stream << context.alloc(value) << " = constant ";
           print(context.stream, constant->value);
+        } else if (Unknown* unknown = dynamic_cast<Unknown*>(value)) {
+          context.stream << context.alloc(value) << " = unknown ";
+          context.stream << unknown->width;
         } else if (Op* op = dynamic_cast<Op*>(value)) {
           for (Value* arg : op->args) {
             print(arg, context);

@@ -71,6 +71,10 @@ namespace hdl {
     }
   };
   
+  struct Unknown: public Comb {
+    Unknown(size_t _width): Comb(_width) {}
+  };
+  
   struct Op: public Comb {
     enum class Kind {
       And, Or, Xor, Not,
@@ -412,6 +416,7 @@ namespace hdl {
     std::vector<Memory*> _memories;
     std::vector<Input*> _inputs;
     std::vector<Output> _outputs;
+    std::vector<Unknown*> _unknowns;
   public:
     Module(const std::string& name): _name(name) {}
     
@@ -749,6 +754,12 @@ namespace hdl {
       return _constants[Constant(bit_string)];
     }
     
+    Unknown* unknown(size_t width) {
+      Unknown* unknown = new Unknown(width);
+      _unknowns.push_back(unknown);
+      return unknown;
+    }
+    
   private:
     void trace(Memory* memory, std::set<void*>& reached) {
       if (reached.find(memory) == reached.end()) {
@@ -806,6 +817,16 @@ namespace hdl {
         }
       }
       _memories = memories;
+      
+      std::vector<Unknown*> unknowns;
+      for (Unknown* unknown : _unknowns) {
+        if (reached.find(unknown) == reached.end()) {
+          delete unknown;
+        } else {
+          unknowns.push_back(unknown);
+        }
+      }
+      _unknowns = unknowns;
       
       _ops.gc(reached);
       _constants.gc(reached);
@@ -889,6 +910,10 @@ namespace hdl {
         if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
           std::ostringstream expr;
           expr << constant->value;
+          return expr.str();
+        } else if (const Unknown* unknown = dynamic_cast<const Unknown*>(value)) {
+          std::ostringstream expr;
+          expr << unknown->width << "'bx";
           return expr.str();
         }
         
@@ -1106,6 +1131,12 @@ namespace hdl {
           constant->value.write_short(ctx.stream);
           ctx.stream << "\"];\n";
           return id;
+        } else if (const Unknown* unknown = dynamic_cast<const Unknown*>(value)) {
+          size_t id = ctx.alloc();
+          ctx.stream << "  n" << id << " [shape=none, label=\"";
+          ctx.stream << unknown->width << "'bx";
+          ctx.stream << "\"];\n";
+          return id;
         }
         
         if (ctx.ids.find(value) != ctx.ids.end()) {
@@ -1289,6 +1320,8 @@ namespace hdl {
         BitString result;
         if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
           result = constant->value;
+        } else if (const Unknown* unknown = dynamic_cast<const Unknown*>(value)) {
+          throw_error(Error, "Unable to simulate with unknown values");
         } else if (const Op* op = dynamic_cast<const Op*>(value)) {
           if (op->kind == Op::Kind::Select) {
             if (eval(op->args[0], values).at(0)) {

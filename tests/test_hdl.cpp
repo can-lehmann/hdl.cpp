@@ -66,6 +66,16 @@ void test_module() {
     module.gc();
     assert(module.regs().size() == 1);
   });
+  
+  Test("Unknown Value").run([&](){
+    hdl::Module module("top");
+    hdl::Value* a = module.unknown(32);
+    hdl::Value* b = module.unknown(32);
+    
+    assert(dynamic_cast<hdl::Constant*>(module.op(hdl::Op::Kind::Eq, { a, a })));
+    assert(dynamic_cast<hdl::Constant*>(module.op(hdl::Op::Kind::Eq, { b, b })));
+    assert(!dynamic_cast<hdl::Constant*>(module.op(hdl::Op::Kind::Eq, { a, b })));
+  });
 }
 
 void test_ops() {
