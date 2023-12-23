@@ -284,7 +284,7 @@ namespace hdl {
     const size_t width = 0;
     const size_t size = 0;
     std::vector<Write> writes;
-    std::vector<Read*> reads;
+    std::unordered_map<Value*, Read*> reads;
     std::string name;
     
     Memory(size_t _width, size_t _size):
@@ -294,7 +294,7 @@ namespace hdl {
     Memory& operator=(const Memory& other) = delete;
     
     ~Memory() {
-      for (Read* read : reads) {
+      for (const auto& [address, read] : reads) {
         delete read;
       }
     }
@@ -327,8 +327,11 @@ namespace hdl {
     }
     
     Read* read(Value* address) {
+      if (reads.find(address) != reads.end()) {
+        return reads.at(address);
+      }
       Read* read = new Read(this, address);
-      reads.push_back(read);
+      reads[address] = read;
       return read;
     }
   };
@@ -439,13 +442,21 @@ namespace hdl {
       throw_error(Error, "Unable to find output \"" << name << "\"");
     }
     
-    Reg* find_reg(const std::string& name) const {
+    Reg* try_find_reg(const std::string& name) const {
       for (Reg* reg : _regs) {
         if (reg->name == name) {
           return reg;
         }
       }
-      throw_error(Error, "Unable to find reg \"" << name << "\"");
+      return nullptr;
+    }
+    
+    Reg* find_reg(const std::string& name) const {
+      if (hdl::Reg* reg = try_find_reg(name)) {
+        return reg;
+      } else {
+        throw_error(Error, "Unable to find reg \"" << name << "\"");
+      }
     }
     
     Input* input(const std::string& name, size_t width) {
@@ -560,10 +571,19 @@ namespace hdl {
               }
             }
           break;
-          // TODO
+          case Op::Kind::Mul: break;
           case Op::Kind::Eq:
             if (args[0] == args[1]) {
               return constant(BitString::from_bool(true));
+            }
+            if (args[1]->width == 1) {
+              if (Constant* constant = dynamic_cast<Constant*>(args[0])) {
+                if (constant->value.is_zero()) {
+                  return this->op(Op::Kind::Not, { args[1] });
+                } else {
+                  return args[1];
+                }
+              }
             }
           break;
           case Op::Kind::LtU:
@@ -665,6 +685,7 @@ namespace hdl {
                     });
                   }
                 break;
+                default: break;
               }
             }
           }
