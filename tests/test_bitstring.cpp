@@ -255,6 +255,13 @@ int main() {
     assert(BitString::from_hex("abcdef").reverse_words(4) == BitString::from_hex("fedcba"));
   });
   
+  Test("popcount").run([](){
+    assert(BitString("0000").popcount() == 0);
+    assert(BitString("0100").popcount() == 1);
+    assert(BitString("1111").popcount() == 4);
+    assert(BitString::from_hex("0123456789abcdef").popcount() == 0 + 1 + 1 + 2 + 1 + 2 + 2 + 3 + 1 + 2 + 2 + 3 + 2 + 3 + 3 + 4);
+  });
+  
   
   return 0;
 }

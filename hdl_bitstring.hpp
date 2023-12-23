@@ -125,6 +125,12 @@ namespace hdl {
       return from_base_log2(4, string);
     }
     
+    static BitString one(size_t width) {
+      BitString bit_string(width);
+      bit_string.set(0, true);
+      return bit_string;
+    }
+    
     inline size_t width() const { return _width; }
     
     bool at(size_t index) const {
@@ -443,6 +449,16 @@ namespace hdl {
         }
       }
       return result;
+    }
+    
+    size_t popcount() const {
+      size_t count = 0;
+      for (size_t it = 0; it < _width; it++) {
+        if (at(it)) {
+          count++;
+        }
+      }
+      return count;
     }
   };
   
