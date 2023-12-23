@@ -407,21 +407,13 @@ namespace hdl {
         RTLIL::SigSpec port_y = cell->getPort(RTLIL::ID::Y);
         
         Value* result = lower(port_a, context);
-        Value* cases = lower(port_b, context);
-        Value* selector = lower(port_s, context);
         
-        for (size_t it = 0; it < selector->width; it++) {
+        std::vector<RTLIL::SigBit> selector_bits = port_s.bits();
+        for (size_t it = 0; it < selector_bits.size(); it++) {
+          RTLIL::SigSpec case_spec = port_b.extract(result->width * it, result->width);
           result = context.module.op(Op::Kind::Select, {
-            context.module.op(Op::Kind::Slice, {
-              selector,
-              context.module.constant(BitString::from_uint(it)),
-              context.module.constant(BitString::from_uint(1))
-            }),
-            context.module.op(Op::Kind::Slice, {
-              cases,
-              context.module.constant(BitString::from_uint(result->width * it)),
-              context.module.constant(BitString::from_uint(result->width))
-            }),
+            lower(selector_bits[it], context),
+            lower(case_spec, context),
             result
           });
         }
@@ -614,7 +606,7 @@ namespace hdl {
         return context[bit];
       }
       
-      Value* lower(const RTLIL::SigSpec& spec, Context& context) {
+      std::vector<Value*> lower_chunks(const RTLIL::SigSpec& spec, Context& context) {
         std::vector<Value*> chunks;
         Value* chunk = nullptr;
         
@@ -652,6 +644,12 @@ namespace hdl {
         if (chunk != nullptr) {
           chunks.push_back(chunk);
         }
+        
+        return chunks;
+      }
+      
+      Value* lower(const RTLIL::SigSpec& spec, Context& context) {
+        std::vector<Value*> chunks = lower_chunks(spec, context);
         
         hdl::Value* result = nullptr;
         for (Value* chunk : chunks) {
