@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef HDL_PROOF
-#define HDL_PROOF
+#ifndef HDL_PROOF_Z3
+#define HDL_PROOF_Z3
 
 #include <vector>
 #include <map>
@@ -156,7 +156,6 @@ namespace hdl {
           return bit_string;
         }
       };
-      
     }
   }
 }
