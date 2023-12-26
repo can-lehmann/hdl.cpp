@@ -28,7 +28,7 @@ namespace hdl {
       using Bits = std::vector<Value*>;
       
       Module& _module;
-      std::map<Value*, Bits> _values;
+      std::unordered_map<Value*, Bits> _values;
       
       Value* select(Value* cond, Value* a, Value* b) {
         return _module.op(Op::Kind::Or, {
@@ -225,7 +225,7 @@ namespace hdl {
           }
         } else if (Unknown* unknown = dynamic_cast<Unknown*>(value)) {
           for (size_t it = 0; it < value->width; it++) {
-            bits.push_back(_module.unknown());
+            bits.push_back(_module.unknown(1));
           }
         } else if (Op* op = dynamic_cast<Op*>(value)) {
           for (Value* arg : op->args) {
