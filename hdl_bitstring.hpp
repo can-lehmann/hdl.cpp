@@ -131,6 +131,14 @@ namespace hdl {
       return bit_string;
     }
     
+    static BitString random(size_t width) {
+      BitString bit_string(width);
+      for (size_t it = 0; it < width; it++) {
+        bit_string.set(it, rand() & 1);
+      }
+      return bit_string;
+    }
+    
     inline size_t width() const { return _width; }
     
     bool at(size_t index) const {
