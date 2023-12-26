@@ -65,6 +65,10 @@ namespace hdl {
           _values.emplace(value, expr);
         }
         
+        void undefine(const Value* value) {
+          _values.erase(value);
+        }
+        
         void define(const Memory* memory, ::z3::expr expr) {
           // TODO: Check sort
           _memories.emplace(memory, expr);
@@ -76,6 +80,17 @@ namespace hdl {
             bits[it] = bit_string[it];
           }
           return _context.bv_val(bit_string.width(), &bits[0]);
+        }
+        
+        ::z3::expr resize_u(::z3::expr expr, size_t to) {
+          size_t width = expr.get_sort().bv_size();
+          if (width == to) {
+            return expr;
+          } else if (to > width) {
+            return ::z3::zext(expr, to - width);
+          } else {
+            throw Error("Not implemented");
+          }
         }
         
         ::z3::expr build(const Value* value) {
@@ -117,9 +132,9 @@ namespace hdl {
                 }
               }
               break;
-              case Op::Kind::Shl: expr = ::z3::shl(arg(0), arg(1)); break;
-              case Op::Kind::ShrU: expr = ::z3::lshr(arg(0), arg(1)); break;
-              case Op::Kind::ShrS: expr = ::z3::ashr(arg(0), arg(1)); break;
+              case Op::Kind::Shl: expr = ::z3::shl(arg(0), resize_u(arg(1), op->args[0]->width)); break;
+              case Op::Kind::ShrU: expr = ::z3::lshr(arg(0), resize_u(arg(1), op->args[0]->width)); break;
+              case Op::Kind::ShrS: expr = ::z3::ashr(arg(0), resize_u(arg(1), op->args[0]->width)); break;
               case Op::Kind::Select: expr = ::z3::ite(arg(0).bit2bool(0), arg(1), arg(2)); break;
               default:
                 throw Error("Operator not implemented");
