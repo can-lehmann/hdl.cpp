@@ -123,7 +123,7 @@ namespace hdl {
         return {};
       }
       
-      hdl::Value* build(hdl::Module& module) {
+      hdl::Value* build(hdl::Module& module) const {
         hdl::Value* result = module.constant(constant);
         for (const auto& [value, factor] : factors) {
           hdl::Value* term = value;
