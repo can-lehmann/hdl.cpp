@@ -162,7 +162,7 @@ namespace hdl {
           auto numeral = model.eval(_values.at(value), true);
           BitString bit_string(numeral.get_sort().bv_size());
           for (size_t it = 0; it < bit_string.width(); it++) {
-            switch (model.eval(numeral.bit2bool(0), true).bool_value()) {
+            switch (model.eval(numeral.bit2bool(it), true).bool_value()) {
               case Z3_L_TRUE: bit_string.set(it, true); break;
               case Z3_L_FALSE: bit_string.set(it, false); break;
               default: throw Error("");
