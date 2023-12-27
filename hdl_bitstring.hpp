@@ -423,6 +423,12 @@ namespace hdl {
     }
     
     BitString slice_width(size_t offset, size_t width) const {
+      if (offset + width > _width) {
+        throw_error(Error,
+          "Slice [" << (offset + width - 1) << ":" << offset << "] " <<
+          "is out of bounds for BitString of width " << _width
+        );
+      }
       return (*this >> offset).truncate(width);
     }
     
