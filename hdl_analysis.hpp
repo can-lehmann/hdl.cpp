@@ -115,6 +115,14 @@ namespace hdl {
         return result;
       }
       
+      bool operator==(const AffineValue& other) const {
+        return constant == other.constant && factors == other.factors;
+      }
+      
+      bool operator!=(const AffineValue& other) const {
+        return !(*this == other);
+      }
+      
       std::optional<bool> static_equal(const AffineValue& other) const {
         if (factors == other.factors) {
           return constant == other.constant;

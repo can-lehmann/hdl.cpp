@@ -101,6 +101,9 @@ namespace hdl {
           std::optional<::z3::expr> expr;
           if (const Constant* constant = dynamic_cast<const Constant*>(value)) {
             expr = build(constant->value);
+          } else if (const Unknown* unknown = dynamic_cast<const Unknown*>(value)) {
+            free(value);
+            return _values.at(value);
           } else if (const Op* op = dynamic_cast<const Op*>(value)) {
             for (const Value* arg : op->args) {
               build(arg);
