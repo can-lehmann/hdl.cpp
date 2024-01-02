@@ -57,6 +57,16 @@ namespace hdl {
         return value;
       }
       
+      uint64_t read_uint64(std::istream& stream) const {
+        skip_whitespace(stream);
+        uint64_t value = 0;
+        if (stream.eof() || !is_digit(stream.peek())) {
+          throw_error(Error, "Expected uint64");
+        }
+        stream >> value;
+        return value;
+      }
+      
       size_t read_id(std::istream& stream) const {
         return read_size(stream);
       }
@@ -223,6 +233,11 @@ namespace hdl {
             size_t width = read_size(stream);
             if (!has_id) { throw_error(Error, "Does not have id"); }
             values[id] = _module.unknown(width);
+          } else if (cmd == "init") {
+            Memory* memory = memories.at(read_id(stream));
+            uint64_t address = read_uint64(stream);
+            BitString value = read_bit_string(stream);
+            memory->init(address, value);
           } else {
             Op::Kind kind;
             bool has_kind = false;
@@ -381,10 +396,18 @@ namespace hdl {
         }
         
         for (Memory* memory : _module.memories()) {
-          stream << context.alloc(memory) << " = memory ";
+          size_t id = context.alloc(memory);
+          stream << id << " = memory ";
           stream << memory->width << ' ' << memory->size << ' ';
           print(stream, memory->name);
           stream << '\n';
+          
+          for (const auto& [address, value] : memory->initial) {
+            stream << "init " << id << ' ' << address;
+            stream << ' ';
+            print(stream, value);
+            stream << '\n';
+          }
         }
         
         for (Reg* reg : _module.regs()) {

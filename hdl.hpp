@@ -287,6 +287,7 @@ namespace hdl {
     
     const size_t width = 0;
     const size_t size = 0;
+    std::unordered_map<uint64_t, BitString> initial;
     std::vector<Write> writes;
     std::unordered_map<Value*, Read*> reads;
     std::string name;
@@ -337,6 +338,38 @@ namespace hdl {
       Read* read = new Read(this, address);
       reads[address] = read;
       return read;
+    }
+    
+    void init(uint64_t address, const BitString& value) {
+      if (value.width() != width) {
+        throw_error(Error,
+          "Unable to initialize memory of width " << width <<
+          " with value of width " << value.width()
+        );
+      }
+      
+      if (value.is_zero()) {
+        initial.erase(address);
+      } else {
+        initial[address] = value;
+      }
+    }
+    
+    void init(uint64_t address,
+              const BitString& enable,
+              const BitString& value) {
+      if (value.width() != width) {
+        throw_error(Error,
+          "Unable to initialize memory of width " << width <<
+          " with value of width " << value.width()
+        );
+      }
+      
+      BitString word = value & enable;
+      if (initial.find(address) != initial.end()) {
+        word = word | (initial.at(address) & ~enable);
+      }
+      init(address, word);
     }
   };
   
@@ -1025,7 +1058,15 @@ namespace hdl {
         }
         
         for (const Memory* memory : _module.memories()) {
-          stream << "  reg" << Width(memory->width) << _memory_names.at(memory) << " [" << memory->size << "];\n";
+          const std::string& name = _memory_names.at(memory);
+          stream << "  reg" << Width(memory->width) << name << " [" << memory->size << "];\n";
+          if (memory->initial.size() > 0) {
+            stream << "  initial begin\n";
+            for (const auto& [address, value] : memory->initial) {
+              stream << "    " << name << "[" << address << "] = " << value << ";\n";
+            }
+            stream << "  end\n";
+          }
         }
         
         for (const Output& output : _module.outputs()) {
@@ -1286,7 +1327,8 @@ namespace hdl {
         std::unordered_map<uint64_t, BitString> data;
         
         MemoryData() {}
-        MemoryData(const Memory* _memory): memory(_memory) {}
+        MemoryData(const Memory* _memory):
+          memory(_memory), data(_memory->initial) {}
         
         BitString& operator[](uint64_t address) {
           if (address >= memory->size) {
@@ -1306,7 +1348,6 @@ namespace hdl {
       using Values = std::unordered_map<const Value*, BitString>;
       
       Module& _module;
-      std::vector<BitString> _inputs;
       std::unordered_map<const Value*, bool> _prev_clocks;
       std::vector<BitString> _regs;
       std::unordered_map<const Memory*, MemoryData> _memories;
@@ -1360,39 +1401,13 @@ namespace hdl {
         values[value] = result;
         return result;
       }
-      
-      Values eval() {
-        Values values;
-        
-        size_t it = 0;
-        for (const Reg* reg : _module.regs()) {
-          values[reg] = _regs[it++];
-        }
-        
-        it = 0;
-        for (const Input* input : _module.inputs()) {
-          values[input] = _inputs[it++];
-        }
-        
-        it = 0;
-        for (const Output& output : _module.outputs()) {
-          _outputs[it++] = eval(output.value, values);
-        }
-        
-        return values;
-      }
     public:
       Simulation(Module& module):
           _module(module),
-          _inputs(module.inputs().size()),
           _regs(module.regs().size()),
           _outputs(module.outputs().size()) {
+
         size_t it = 0;
-        for (const Input* input : _module.inputs()) {
-          _inputs[it++] = BitString(input->width);
-        }
-        
-        it = 0;
         for (const Reg* reg : _module.regs()) {
           _prev_clocks[reg->clock] = false;
           _regs[it++] = BitString(reg->width);
@@ -1409,7 +1424,6 @@ namespace hdl {
         reset();
       }
       
-      const std::vector<BitString>& inputs() const { return _inputs; };
       const std::vector<BitString>& regs() const { return _regs; };
       const std::unordered_map<const Memory*, MemoryData>& memories() const { return _memories; };
       const std::vector<BitString>& outputs() const { return _outputs; };
@@ -1422,6 +1436,16 @@ namespace hdl {
         }
         
         throw_error(Error, "Output " << name << " not found");
+      }
+      
+      const BitString& find_reg(const std::string& name) const {
+        for (size_t it = 0; it < _regs.size(); it++) {
+          if (_module.regs()[it]->name == name) {
+            return _regs[it];
+          }
+        }
+        
+        throw_error(Error, "Reg " << name << " not found");
       }
       
       void reset() {
@@ -1439,10 +1463,38 @@ namespace hdl {
         if (inputs.size() != _module.inputs().size()) {
           throw_error(Error, "Module has " << _module.inputs().size() << " inputs, but simulation only got " << inputs.size() << " values.");
         }
-        _inputs = inputs;
         
-        Values values = eval();
+        Values values;
+        for (size_t it = 0; it < inputs.size(); it++) {
+          values[_module.inputs()[it]] = inputs[it];
+        }
+        update(values);
+      }
+      
+      void update(const std::unordered_map<std::string, BitString>& inputs) {
+        if (inputs.size() != _module.inputs().size()) {
+          throw_error(Error, "Module has " << _module.inputs().size() << " inputs, but simulation only got " << inputs.size() << " values.");
+        }
+        
+        Values values;
+        for (hdl::Input* input : _module.inputs()) {
+          values[input] = inputs.at(input->name);
+        }
+        update(values);
+      }
+      
+      void update(Values& values) {
         size_t it = 0;
+        for (const Reg* reg : _module.regs()) {
+          values[reg] = _regs[it++];
+        }
+        
+        it = 0;
+        for (const Output& output : _module.outputs()) {
+          _outputs[it++] = eval(output.value, values);
+        }
+        
+         it = 0;
         for (const Reg* reg : _module.regs()) {
           bool clock = eval(reg->clock, values)[0];
           if (clock && !_prev_clocks.at(reg->clock)) {

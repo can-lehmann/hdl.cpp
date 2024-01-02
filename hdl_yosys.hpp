@@ -127,7 +127,7 @@ namespace hdl {
         
         if (target > value->width) {
           BitString zeros(target - value->width);
-          hdl::Value* fill = context.module.constant(zeros);
+          Value* fill = context.module.constant(zeros);
           
           if (is_signed) {
             fill = context.module.op(Op::Kind::Select, {
@@ -149,6 +149,15 @@ namespace hdl {
         return value;
       }
       
+      Value* reduce_bool(Value* value, Context& context) {
+        return context.module.op(Op::Kind::Not, {
+          context.module.op(Op::Kind::Eq, {
+            value,
+            context.module.constant(BitString(value->width))
+          })
+        });
+      }
+      
       bool is_cmp(const RTLIL::IdString& type) const {
         return type.in(
           ID($eqx),
@@ -159,6 +168,25 @@ namespace hdl {
           ID($ge),
           ID($eq),
           ID($ne)
+        );
+      }
+      
+      bool is_logic(const RTLIL::IdString& type) const {
+        return type.in(
+          ID($logic_and),
+          ID($logic_or),
+          ID($logic_not)
+        );
+      }
+      
+      bool is_shift(const RTLIL::IdString& type) const {
+        return type.in(
+          ID($shl),
+          ID($sshl),
+          ID($shr),
+          ID($sshr),
+          ID($shift),
+          ID($shiftx)
         );
       }
       
@@ -190,7 +218,9 @@ namespace hdl {
           ID($div),
           ID($mod),
           ID($divfloor),
-          ID($modfloor)
+          ID($modfloor),
+          ID($shift),
+          ID($shiftx)
         );
       }
       
@@ -207,7 +237,7 @@ namespace hdl {
         RTLIL::SigSpec port_a = cell->getPort(RTLIL::ID::A);
         RTLIL::SigSpec port_y = cell->getPort(RTLIL::ID::Y);
         
-        hdl::Value* a = lower(port_a, context);
+        Value* a = lower(port_a, context);
         
         // Sign Extend
         
@@ -218,6 +248,7 @@ namespace hdl {
           internal_width = port_a.size();
         }
         
+        std::cout << "Extend for: " << RTLIL::id2cstr(cell->type) << std::endl;
         a = extend(a, internal_width, a_signed, context);
         
         // Eval
@@ -234,12 +265,7 @@ namespace hdl {
         } else if (cell->type == ID($pos)) {
           y = a;
         } else if (cell->type == ID($reduce_or) || cell->type == ID($reduce_bool)) {
-          y = context.module.op(Op::Kind::Not, {
-            context.module.op(Op::Kind::Eq, {
-              a,
-              context.module.constant(BitString(a->width))
-            })
-          });
+          y = reduce_bool(a, context);
         } else if (cell->type == ID($reduce_and)) {
           y = context.module.op(Op::Kind::Eq, {
             a,
@@ -277,22 +303,30 @@ namespace hdl {
         RTLIL::SigSpec port_b = cell->getPort(RTLIL::ID::B);
         RTLIL::SigSpec port_y = cell->getPort(RTLIL::ID::Y);
         
-        hdl::Value* a = lower(port_a, context);
-        hdl::Value* b = lower(port_b, context);
+        Value* a = lower(port_a, context);
+        Value* b = lower(port_b, context);
         
         // Sign Extend
         
         bool a_signed = !cell->getParam(RTLIL::ID::A_SIGNED).is_fully_zero();
         bool b_signed = !cell->getParam(RTLIL::ID::B_SIGNED).is_fully_zero();
         
-        size_t internal_width = port_y.size();
-        if (is_cmp(cell->type)) {
-          internal_width = std::max(port_a.size(), port_b.size());
-        }
+        size_t internal_width = 1;
         
-        a = extend(a, internal_width, a_signed, context);
-        if (!cell->type.in(ID($shl), ID($sshl), ID($shr), ID($sshr))) {
-          b = extend(b, internal_width, b_signed, context);
+        if (is_logic(cell->type)) {
+          a = reduce_bool(a, context);
+          b = reduce_bool(b, context);
+        } else {
+          internal_width = std::max(port_y.size(), port_a.size());
+          if (!is_shift(cell->type)) {
+            internal_width = std::max(internal_width, size_t(port_b.size()));
+          }
+        
+          std::cout << "Extend for: " << RTLIL::id2cstr(cell->type) << std::endl;
+          a = extend(a, internal_width, a_signed, context);
+          if (!is_shift(cell->type)) {
+            b = extend(b, internal_width, b_signed, context);
+          }
         }
         
         // Eval
@@ -345,8 +379,44 @@ namespace hdl {
             context.module.constant(BitString::from_uint(0)),
             context.module.constant(BitString::from_uint(internal_width))
           });
+        } else if (cell->type == ID($logic_and)) {
+          y = context.module.op(Op::Kind::And, { a, b });
+        } else if (cell->type == ID($logic_or)) {
+          y = context.module.op(Op::Kind::Or, { a, b });
+        } else if (cell->type == ID($shift) || cell->type == ID($shiftx)) {
+          if (b_signed) {
+            y = context.module.op(Op::Kind::Select, {
+              context.module.op(Op::Kind::LtS, {
+                b,
+                context.module.constant(BitString(b->width))
+              }),
+              context.module.op(Op::Kind::Shl, {
+                a,
+                context.module.op(Op::Kind::Sub, {
+                  context.module.constant(BitString(b->width)),
+                  b
+                })
+              }),
+              context.module.op(Op::Kind::ShrU, { a, b })
+            });
+          } else {
+            y = context.module.op(Op::Kind::ShrU, { a, b });
+          }
         } else {
           throw_error(Error, "Lowering binary operator \"" << RTLIL::id2cstr(cell->type) << "\" is not implemented");
+        }
+        
+        if ((is_cmp(cell->type) || is_logic(cell->type)) && port_y.size() > 1) {
+          y = context.module.op(Op::Kind::Concat, {
+            context.module.constant(BitString(port_y.size())),
+            y
+          });
+        } else if (port_y.size() < y->width) {
+          y = context.module.op(Op::Kind::Slice, {
+            y,
+            context.module.constant(BitString::from_uint(0)),
+            context.module.constant(BitString::from_uint(size_t(port_y.size())))
+          });
         }
         
         context.set(port_y, y);
@@ -483,6 +553,35 @@ namespace hdl {
         );
       }
       
+      void lower_meminit(RTLIL::Cell* cell, Context& context) {
+        RTLIL::SigSpec port_addr = cell->getPort(RTLIL::ID::ADDR);
+        RTLIL::SigSpec port_data = cell->getPort(RTLIL::ID::DATA);
+        
+        RTLIL::IdString memid = cell->getParam(RTLIL::ID::MEMID).decode_string();
+        Memory* memory = context.memories.at(memid);
+        
+        uint64_t address = lower(port_addr.as_const(), context).as_uint64();
+        BitString data = lower(port_data.as_const(), context);
+        
+        BitString enable;
+        if (cell->hasPort(RTLIL::ID::EN)) {
+          RTLIL::SigSpec port_en = cell->getPort(RTLIL::ID::EN);
+          enable = lower(port_en.as_const(), context);
+        } else {
+          enable = ~BitString(memory->width);
+        }
+        
+        if (data.width() % memory->width != 0) {
+          throw_error(Error, "Data size is not a multiple of memory width");
+        }
+        
+        size_t words = data.width() / memory->width;
+        for (size_t it = 0; it < words; it++, address++) {
+          BitString value = data.slice_width(it * memory->width, memory->width);
+          memory->init(address, enable, value);
+        }
+      }
+      
       void lower_bwmux(RTLIL::Cell* cell, Context& context) {
         RTLIL::SigSpec port_s = cell->getPort(RTLIL::ID::S);
         RTLIL::SigSpec port_a = cell->getPort(RTLIL::ID::A);
@@ -569,6 +668,8 @@ namespace hdl {
           lower_memrd(cell, context);
         } else if (cell->type == ID($memwr_v2)) {
           lower_memwr_v2(cell, context);
+        } else if (cell->type == ID($meminit) || cell->type == ID($meminit_v2)) {
+          lower_meminit(cell, context);
         } else if (cell->type == ID($bweqx)) {
           lower_bweqx(cell, context);
         } else if (cell->type == ID($bwmux)) {
@@ -629,7 +730,7 @@ namespace hdl {
           }
           
           if (concat) {
-            chunk = context.module.op(hdl::Op::Kind::Concat, {
+            chunk = context.module.op(Op::Kind::Concat, {
               value,
               chunk
             });
@@ -651,12 +752,12 @@ namespace hdl {
       Value* lower(const RTLIL::SigSpec& spec, Context& context) {
         std::vector<Value*> chunks = lower_chunks(spec, context);
         
-        hdl::Value* result = nullptr;
+        Value* result = nullptr;
         for (Value* chunk : chunks) {
           if (result == nullptr) {
             result = chunk;
           } else {
-            result = context.module.op(hdl::Op::Kind::Concat, {
+            result = context.module.op(Op::Kind::Concat, {
               chunk,
               result
             });
@@ -692,7 +793,7 @@ namespace hdl {
             std::cout << RTLIL::id2cstr(cell->type) << '\t' << RTLIL::id2cstr(cell->name) << std::endl;
           }
           
-          if (cell->type == ID($memwr_v2)) {
+          if (cell->type.in(ID($memwr), ID($memwr_v2), ID($meminit), ID($meminit_v2))) {
             lower(cell, context);
           }
         }
@@ -888,6 +989,9 @@ namespace hdl {
         }
         
         for (Memory* memory : module.memories()) {
+          if (memory->initial.size() > 0) {
+            throw_error(Error, "Memories with initial values are not yet supported");
+          }
           RTLIL::Memory mem;
           mem.width = memory->width;
           mem.start_offset = 0;
