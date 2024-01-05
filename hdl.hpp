@@ -1459,7 +1459,7 @@ namespace hdl {
         }
       }
       
-      void update(const std::vector<BitString>& inputs) {
+      Values update(const std::vector<BitString>& inputs) {
         if (inputs.size() != _module.inputs().size()) {
           throw_error(Error, "Module has " << _module.inputs().size() << " inputs, but simulation only got " << inputs.size() << " values.");
         }
@@ -1469,9 +1469,10 @@ namespace hdl {
           values[_module.inputs()[it]] = inputs[it];
         }
         update(values);
+        return values;
       }
       
-      void update(const std::unordered_map<std::string, BitString>& inputs) {
+      Values update(const std::unordered_map<std::string, BitString>& inputs) {
         if (inputs.size() != _module.inputs().size()) {
           throw_error(Error, "Module has " << _module.inputs().size() << " inputs, but simulation only got " << inputs.size() << " values.");
         }
@@ -1480,10 +1481,20 @@ namespace hdl {
         for (hdl::Input* input : _module.inputs()) {
           values[input] = inputs.at(input->name);
         }
-        update(values);
+        values = update(values);
+        return values;
       }
       
-      void update(Values& values) {
+      Values update(const Values& initial) {
+        while (true) {
+          Values values = initial;
+          if (!update_step(values)) {
+            return values;
+          }
+        }
+      }
+      
+      bool update_step(Values& values) {
         size_t it = 0;
         for (const Reg* reg : _module.regs()) {
           values[reg] = _regs[it++];
@@ -1494,11 +1505,14 @@ namespace hdl {
           _outputs[it++] = eval(output.value, values);
         }
         
-         it = 0;
+        bool changed = false;
+        
+        it = 0;
         for (const Reg* reg : _module.regs()) {
           bool clock = eval(reg->clock, values)[0];
           if (clock && !_prev_clocks.at(reg->clock)) {
             _regs[it] = eval(reg->next, values);
+            changed = true;
           }
           it++;
         }
@@ -1512,6 +1526,7 @@ namespace hdl {
                 uint64_t address = eval(write.address, values).as_uint64();
                 BitString value = eval(write.value, values);
                 _memories[memory][address] = value;
+                changed = true;
               }
             }
           }
@@ -1520,7 +1535,158 @@ namespace hdl {
         for (auto& [value, prev] : _prev_clocks) {
           prev = eval(value, values)[0];
         }
+        
+        return changed;
       }
+    };
+    
+    class VCDWriter {
+    private:
+      std::ostream& _stream;
+      Module& _module;
+      std::string _timescale = "1ps";
+      size_t _timestamp = 0;
+      bool _header_written = false;
+      
+      std::unordered_map<const Value*, std::string> _name_overrides;
+      std::unordered_map<const Value*, BitString> _prev;
+      std::unordered_map<const Value*, size_t> _ids;
+      
+      std::string name(const Value* value) {
+        if (_name_overrides.find(value) != _name_overrides.end()) {
+          return _name_overrides.at(value);
+        } else if (const Input* input = dynamic_cast<const Input*>(value)) {
+          if (input->name.size() > 0) {
+            return input->name;
+          }
+        } else if (const Reg* reg = dynamic_cast<const Reg*>(value)) {
+          if (reg->name.size() > 0) {
+            return reg->name;
+          }
+        }
+        
+        size_t id = _ids.at(value);
+        return std::string("v") + std::to_string(id);
+      }
+      
+      void print_id(size_t id) {
+        if (id == 0) {
+          _stream << '!';
+          return;
+        }
+        
+        constexpr char MIN_PRINTABLE = 33;
+        constexpr char MAX_PRINTABLE = 126;
+        constexpr char PRINTABLE_COUNT = (MAX_PRINTABLE - MIN_PRINTABLE + 1);
+        
+        while (id > 0) {
+          _stream << char((id % PRINTABLE_COUNT) + MIN_PRINTABLE);
+          id /= PRINTABLE_COUNT;
+        }
+      }
+      
+      void dump(size_t id, const BitString& value) {
+        if (value.width() == 1) {
+          _stream << (value[0] ? '1' : '0');
+        } else {
+          _stream << 'b';
+          for (size_t it = value.width(); it-- > 0; ) {
+            _stream << (value[it] ? '1' : '0');
+          }
+          _stream << ' ';
+        }
+        
+        print_id(id);
+        _stream << std::endl;
+      }
+    public:
+      VCDWriter(std::ostream& stream, Module& module):
+          _stream(stream),
+          _module(module),
+          _prev(module.regs().size()) {
+        
+        for (const Reg* reg : _module.regs()) {
+          probe(reg);
+        }
+        
+        for (const Input* input : _module.inputs()) {
+          probe(input);
+        }
+        
+        for (const Output& output : _module.outputs()) {
+          probe(output.value, output.name);
+        }
+      }
+      
+      inline const std::string& timescale() const { return _timescale; }
+      inline void set_timescale(const std::string& timescale) {
+        if (_header_written) {
+          throw_error(Error, "Unable to change timescale after writing to VCD file");
+        }
+        _timescale = timescale;
+      }
+      
+      inline size_t timestamp() const { return _timestamp; }
+      inline void set_timestamp(size_t timestamp) { _timestamp = timestamp; }
+      
+      void probe(const Value* value) {
+        if (_header_written) {
+          throw_error(Error, "Unable to add probe after writing to VCD file");
+        }
+        _ids.insert({value, _ids.size()});
+      }
+      
+      void probe(const Value* value, const std::string& name) {
+        probe(value);
+        _name_overrides.insert({value, name});
+      }
+      
+      void write_header() {
+        _stream << "$timescale " << _timescale << " $end" << std::endl;
+        _stream << "$scope module " << _module.name() << " $end" << std::endl;
+        for (const auto& [value, id] : _ids) {
+          const Reg* reg = dynamic_cast<const Reg*>(value);
+          
+          _stream << "$var " << (reg ? "reg" : "wire") << " " << value->width << " ";
+          print_id(id);
+          _stream << " " << name(value) << " $end" << std::endl;
+        }
+        _stream << "$upscope $end" << std::endl;
+        _stream << "$enddefinitions $end" << std::endl;
+        _stream << "$dumpvars" << std::endl;
+        
+        for (const auto& [value, id] : _ids) {
+          if (const Reg* reg = dynamic_cast<const Reg*>(value)) {
+            _prev[value] = reg->initial;
+          } else {
+            _prev[value] = BitString(value->width);
+          }
+          
+          dump(id, _prev.at(value));
+        }
+        
+        _stream << "$end" << std::endl;
+        _header_written = true;
+      }
+      
+      void write(const std::unordered_map<const Value*, BitString>& values) {
+        if (!_header_written) {
+          write_header();
+        }
+        
+        _stream << "#" << _timestamp << std::endl;
+        
+        for (const auto& [value, id] : _ids) {
+          const BitString& current = values.at(value);
+          if (current != _prev.at(value)) {
+            dump(id, current);
+            _prev[value] = current;
+          }
+        }
+        
+        _timestamp++;
+      }
+      
     };
   }
 }
