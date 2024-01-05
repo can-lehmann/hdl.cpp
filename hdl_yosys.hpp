@@ -295,6 +295,13 @@ namespace hdl {
           throw_error(Error, "Lowering unary operator \"" << RTLIL::id2cstr(cell->type) << "\" is not implemented");
         }
         
+        if ((is_logic(cell->type) || is_reduce(cell->type)) && port_y.size() > 1) {
+          y = context.module.op(Op::Kind::Concat, {
+            context.module.constant(BitString(port_y.size() - 1)),
+            y
+          });
+        }
+        
         context.set(port_y, y);
       }
       
@@ -408,7 +415,7 @@ namespace hdl {
         
         if ((is_cmp(cell->type) || is_logic(cell->type)) && port_y.size() > 1) {
           y = context.module.op(Op::Kind::Concat, {
-            context.module.constant(BitString(port_y.size())),
+            context.module.constant(BitString(port_y.size() - 1)),
             y
           });
         } else if (port_y.size() < y->width) {
