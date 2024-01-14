@@ -126,6 +126,11 @@ namespace hdl {
       Reg(): T(global_context.module(), create_register()) {}
       Reg(const T& initial): T(initial.module(), create_register(initial)) {}
       
+      void set_name(const std::string& name) {
+        hdl::Reg* reg = dynamic_cast<hdl::Reg*>(this->value());
+        reg->name = name;
+      }
+      
       Reg<T>& operator=(const T& val) {
         hdl::Reg* reg = dynamic_cast<hdl::Reg*>(this->value());
         reg->clock = global_context.clock();
@@ -267,6 +272,10 @@ namespace hdl {
       }
     public:
       Mem(): _module(global_context.module()), _memory(create_memory(T())) {}
+      
+      void set_name(const std::string& name) {
+        _memory->name = name;
+      }
       
       template <size_t AddressWidth>
       T operator[](const U<AddressWidth>& address) {
