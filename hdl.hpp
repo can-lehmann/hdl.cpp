@@ -479,23 +479,33 @@ namespace hdl {
       }
       throw_error(Error, "Unable to find output \"" << name << "\"");
     }
-    
-    Reg* try_find_reg(const std::string& name) const {
-      for (Reg* reg : _regs) {
-        if (reg->name == name) {
-          return reg;
+  
+  private:
+    template <class T>
+    T* try_find(const std::vector<T*>& values, const std::string& name) const {
+      for (T* value : values) {
+        if (value->name == name) {
+          return value;
         }
       }
       return nullptr;
     }
     
-    Reg* find_reg(const std::string& name) const {
-      if (hdl::Reg* reg = try_find_reg(name)) {
-        return reg;
+    template <class T>
+    T* find(const std::vector<T*>& values, const std::string& name) const {
+      if (T* value = try_find(values, name)) {
+        return value;
       } else {
-        throw_error(Error, "Unable to find reg \"" << name << "\"");
+        throw_error(Error, "Unable to find \"" << name << "\"");
       }
     }
+    
+  public:
+    Reg* try_find_reg(const std::string& name) const { return try_find(_regs, name); }
+    Input* try_find_input(const std::string& name) const { return try_find(_inputs, name); }
+    
+    Reg* find_reg(const std::string& name) const { return find(_regs, name); }
+    Input* find_input(const std::string& name) const { return find(_inputs, name); }
     
     Input* input(const std::string& name, size_t width) {
       Input* input = new Input(name, width);
