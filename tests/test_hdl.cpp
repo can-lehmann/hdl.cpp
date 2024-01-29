@@ -224,10 +224,10 @@ void test_sim() {
     
     {
       hdl::sim::Simulation sim(module);
-      bool clock = false;
+      bool clock = true;
       for (size_t iter = 0; iter < 100; iter++) {
         sim.update({hdl::BitString::from_bool(clock)});
-        assert(sim.outputs()[0].as_uint64() == iter / 2)
+        assert(sim.outputs()[0].as_uint64() == iter / 2 + 1)
         clock = !clock;
       }
     }
