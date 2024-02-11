@@ -503,9 +503,11 @@ namespace hdl {
   public:
     Reg* try_find_reg(const std::string& name) const { return try_find(_regs, name); }
     Input* try_find_input(const std::string& name) const { return try_find(_inputs, name); }
+    Memory* try_find_memory(const std::string& name) const { return try_find(_memories, name); }
     
     Reg* find_reg(const std::string& name) const { return find(_regs, name); }
     Input* find_input(const std::string& name) const { return find(_inputs, name); }
+    Memory* find_memory(const std::string& name) const { return find(_memories, name); }
     
     Input* input(const std::string& name, size_t width) {
       Input* input = new Input(name, width);
@@ -1332,6 +1334,8 @@ namespace hdl {
   namespace sim {
     class Simulation {
     public:
+      using Values = std::unordered_map<const Value*, BitString>;
+      
       struct MemoryData {
         const Memory* memory = nullptr;
         std::unordered_map<uint64_t, BitString> data;
@@ -1355,8 +1359,6 @@ namespace hdl {
         }
       };
     private:
-      using Values = std::unordered_map<const Value*, BitString>;
-      
       Module& _module;
       std::unordered_map<const Value*, bool> _prev_clocks;
       std::vector<BitString> _regs;
