@@ -294,6 +294,16 @@ namespace hdl {
       return result;
     }
     
+    BitString resize_u(size_t to_width) const {
+      if (_width == to_width) {
+        return *this;
+      } else if (_width < to_width) {
+        return zero_extend(to_width);
+      } else {
+        return truncate(to_width);
+      }
+    }
+    
     BitString mul_u(const BitString& other) const {
       BitString result(_width + other._width);
       for (size_t it = 0; it < _width; it++) {
