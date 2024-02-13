@@ -348,6 +348,13 @@ namespace hdl {
         );
       }
       
+      if (address >= size) {
+        throw_error(Error,
+          "Address " << address <<
+          " is out of bounds for memory of size " << size
+        );
+      }
+      
       if (value.is_zero()) {
         initial.erase(address);
       } else {
