@@ -74,6 +74,17 @@ namespace hdl {
           _memories.emplace(memory, expr);
         }
         
+        ::z3::expr build_initial(const Memory* memory) {
+          ::z3::expr array = ::z3::const_array(
+            _context.int_sort(),
+            build(hdl::BitString(memory->width))
+          );
+          for (const auto& [address, value] : memory->initial) {
+            array = ::z3::store(array, _context.int_val(address), build(value));
+          }
+          return array;
+        }
+        
         ::z3::expr build(const BitString& bit_string) {
           bool bits[bit_string.width()];
           for (size_t it = 0; it < bit_string.width(); it++) {
