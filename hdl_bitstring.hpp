@@ -386,6 +386,10 @@ namespace hdl {
       return value;
     }
     
+    bool eq(const BitString& other) const {
+      return (*this) == other;
+    }
+    
     bool lt_u(const BitString& other) const {
       ensure_same_width(other);
       
@@ -484,10 +488,196 @@ namespace hdl {
       }
       return count;
     }
+    
+    BitString select(const BitString& then, const BitString& otherwise) const {
+      if (_width != 1) {
+        throw_error(Error, "Condition must be of width 1, but got BitString of width " << _width);
+      }
+      return at(0) ? then : otherwise;
+    }
   };
   
   std::ostream& operator<<(std::ostream& stream, const BitString& bit_string) {
     bit_string.write(stream);
+    return stream;
+  }
+
+  class PartialBitString {
+  public:
+    enum class Bool {
+      False, True, Unknown
+    };
+  private:
+    BitString _known;
+    BitString _value;
+  public:
+    PartialBitString() {}
+    explicit PartialBitString(size_t width): _known(width), _value(width) {}
+    
+    PartialBitString(const std::string& string):
+        _known(string.size()), _value(string.size()) {
+    
+      for (size_t it = 0; it < string.size(); it++) {
+        char chr = string[string.size() - it - 1];
+        switch (chr) {
+          case '0': _known.set(it, true); _value.set(it, false); break;
+          case '1': _known.set(it, true); _value.set(it, true); break;
+          case 'x':
+          case 'X': _known.set(it, false); _value.set(it, false); break;
+          default: throw_error(Error, "Invalid digit " << chr);
+        }
+      }
+    }
+    
+    PartialBitString(const BitString& value):
+      _known(~hdl::BitString(value.width())), _value(value) {}
+    
+    PartialBitString(const BitString& known, const BitString& value):
+        _known(known), _value(value) {
+      if (known.width() != value.width()) {
+        throw_error(Error,
+          "Width mismatch: known has width " << known.width() <<
+          " while value has width " << value.width()
+        );
+      }
+    }
+    
+    static PartialBitString from_bool(Bool value) {
+      switch (value) {
+        case Bool::False: return PartialBitString(BitString::from_bool(true), BitString::from_bool(false));
+        case Bool::True: return PartialBitString(BitString::from_bool(true), BitString::from_bool(true));
+        case Bool::Unknown: return PartialBitString(BitString::from_bool(false), BitString::from_bool(false));
+      }
+    }
+    
+    inline const size_t width() const { return _value.width(); }
+    inline const BitString& known() const { return _known; }
+    inline const BitString& value() const { return _value; }
+    
+    inline bool is_fully_known() const { return _known.is_all_ones(); }
+    inline bool is_fully_unknown() const { return _known.is_zero(); }
+    
+    PartialBitString operator&(const PartialBitString& other) const {
+      return PartialBitString(
+        (_known & other._known) | (~_value & _known) | (~other._value & other._known),
+        _value & other._value
+      );
+    }
+    
+    PartialBitString operator|(const PartialBitString& other) const {
+      return PartialBitString(
+        (_known & other._known) | (_value & _known) | (other._value & other._known),
+        _value | other._value
+      );
+    }
+    
+    PartialBitString operator^(const PartialBitString& other) const {
+      return PartialBitString(_known & other._known, _value ^ other._value);
+    }
+    
+    PartialBitString operator~() const {
+      return PartialBitString(_known, ~_value);
+    }
+    
+    #define binop(name, RetType, impl, otherwise) \
+      RetType name(const PartialBitString& other) const { \
+        if (is_fully_known() && other.is_fully_known()) { \
+          return impl; \
+        } else { \
+          return otherwise; \
+        } \
+      }
+    
+    binop(operator+, PartialBitString, _value + other._value, PartialBitString(width()))
+    binop(operator-, PartialBitString, _value - other._value, PartialBitString(width()))
+    binop(mul_u, PartialBitString, _value.mul_u(other._value), PartialBitString(width() + other.width()))
+    
+    #define cmp(op) binop(op, Bool, Bool(_value.op(other._value)), Bool::Unknown)
+    
+    cmp(eq)
+    cmp(lt_u)
+    cmp(lt_s)
+    cmp(le_u)
+    cmp(le_s)
+    
+    #undef cmp
+    #undef binop
+    
+    PartialBitString concat(const PartialBitString& other) const {
+      return PartialBitString(
+        _known.concat(other._known),
+        _value.concat(other._value)
+      );
+    }
+    
+    PartialBitString slice_width(size_t offset, size_t width) const {
+      return PartialBitString(
+        _known.slice_width(offset, width),
+        _known.slice_width(offset, width)
+      );
+    }
+    
+    PartialBitString slice_width(const PartialBitString& offset, size_t width) const {
+      if (offset.is_fully_known()) {
+        return slice_width(offset.as_uint64(), width);
+      } else {
+        return PartialBitString(width);
+      }
+    }
+    
+    PartialBitString select(const PartialBitString& then, const PartialBitString& otherwise) {
+      if (width() != 1) {
+        throw_error(Error, "Condition must be of width 1, but got PartialBitString of width " << width());
+      }
+      
+      if (is_fully_known()) {
+        if (_value[0]) {
+          return then;
+        } else {
+          return otherwise;
+        }
+      } else {
+        return then.merge(otherwise);
+      }
+    }
+    
+    PartialBitString merge(const PartialBitString& other) const {
+      return PartialBitString(
+        _known & other._known & ~(_value ^ other._value),
+        _value
+      );
+    }
+    
+    bool operator==(const PartialBitString& other) const {
+      return _known == other._known &&
+             (_value & _known) == (other._value & other._known);
+    }
+    
+    inline bool operator!=(const PartialBitString& other) const {
+      return !(*this == other);
+    }
+    
+    uint64_t as_uint64() const {
+      if (!is_fully_known()) {
+        throw_error(Error, "PartialBitString is not fully known");
+      }
+      return _value.as_uint64();
+    }
+    
+    void write(std::ostream& stream) const {
+      stream << width() << "'b";
+      for (size_t it = width(); it-- > 0; ) {
+        if (_known[it]) {
+          stream << (_value[it] ? '1' : '0');
+        } else {
+          stream << 'x';
+        }
+      }
+    }
+  };
+  
+  std::ostream& operator<<(std::ostream& stream, const PartialBitString& partial_bit_string) {
+    partial_bit_string.write(stream);
     return stream;
   }
 }
