@@ -613,7 +613,7 @@ namespace hdl {
     PartialBitString slice_width(size_t offset, size_t width) const {
       return PartialBitString(
         _known.slice_width(offset, width),
-        _known.slice_width(offset, width)
+        _value.slice_width(offset, width)
       );
     }
     
