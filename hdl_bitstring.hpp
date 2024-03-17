@@ -270,6 +270,18 @@ namespace hdl {
       return shr_u(shift);
     }
     
+    BitString operator<<(const BitString& other) const {
+      return *this << other.as_uint64();
+    }
+    
+    BitString shr_u(const BitString& other) const {
+      return shr_u(other.as_uint64());
+    }
+    
+    BitString shr_s(const BitString& other) const {
+      return shr_s(other.as_uint64());
+    }
+    
     BitString zero_extend(size_t to_width) const {
       if (to_width < _width) {
         throw_error(Error, "Cannot zero extend from width " << _width << ", to width " << to_width);
@@ -625,7 +637,43 @@ namespace hdl {
       }
     }
     
-    PartialBitString select(const PartialBitString& then, const PartialBitString& otherwise) {
+    PartialBitString operator<<(size_t shift) const {
+      return PartialBitString(_known << shift, _value << shift);
+    }
+    
+    PartialBitString shr_u(size_t shift) const {
+      return PartialBitString(_known.shr_u(shift), _value.shr_u(shift));
+    }
+    
+    PartialBitString shr_s(size_t shift) const {
+      return PartialBitString(_known.shr_s(shift), _value.shr_s(shift));
+    }
+    
+    PartialBitString operator<<(const PartialBitString& other) const {
+      if (other.is_fully_known()) {
+        return *this << other.as_uint64();
+      } else {
+        return PartialBitString(width()); 
+      }
+    }
+    
+    PartialBitString shr_u(const PartialBitString& other) const {
+      if (other.is_fully_known()) {
+        return shr_u(other.as_uint64());
+      } else {
+        return PartialBitString(width()); 
+      }
+    }
+    
+    PartialBitString shr_s(const PartialBitString& other) const {
+      if (other.is_fully_known()) {
+        return shr_s(other.as_uint64());
+      } else {
+        return PartialBitString(width()); 
+      }
+    }
+    
+    PartialBitString select(const PartialBitString& then, const PartialBitString& otherwise) const {
       if (width() != 1) {
         throw_error(Error, "Condition must be of width 1, but got PartialBitString of width " << width());
       }
@@ -646,6 +694,15 @@ namespace hdl {
         _known & other._known & ~(_value ^ other._value),
         _value
       );
+    }
+    
+    bool merge_inplace(const PartialBitString& other) {
+      PartialBitString merged = merge(other);
+      if (merged != *this) {
+        *this = merged;
+        return true;
+      }
+      return false;
     }
     
     bool operator==(const PartialBitString& other) const {

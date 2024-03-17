@@ -181,11 +181,12 @@ namespace hdl {
       return kind == other.kind && args == other.args;
     }
     
-    BitString eval(BitString const** values) const {
+    template <class T = BitString>
+    T eval(T const** values) const {
       #define arg(index) (*(values[(index)]))
       #define binop(op) result = arg(0) op arg(1);
       
-      BitString result;
+      T result;
       switch (kind) {
         case Op::Kind::And: binop(&); break;
         case Op::Kind::Or: binop(|); break;
@@ -194,17 +195,17 @@ namespace hdl {
         case Op::Kind::Add: binop(+); break;
         case Op::Kind::Sub: binop(-); break;
         case Op::Kind::Mul: result = arg(0).mul_u(arg(1)); break;
-        case Op::Kind::Eq: result = BitString::from_bool(arg(0) == arg(1)); break;
-        case Op::Kind::LtU: result = BitString::from_bool(arg(0).lt_u(arg(1))); break;
-        case Op::Kind::LtS: result = BitString::from_bool(arg(0).lt_s(arg(1))); break;
-        case Op::Kind::LeU: result = BitString::from_bool(arg(0).le_u(arg(1))); break;
-        case Op::Kind::LeS: result = BitString::from_bool(arg(0).le_s(arg(1))); break;
+        case Op::Kind::Eq: result = T::from_bool(arg(0).eq(arg(1))); break;
+        case Op::Kind::LtU: result = T::from_bool(arg(0).lt_u(arg(1))); break;
+        case Op::Kind::LtS: result = T::from_bool(arg(0).lt_s(arg(1))); break;
+        case Op::Kind::LeU: result = T::from_bool(arg(0).le_u(arg(1))); break;
+        case Op::Kind::LeS: result = T::from_bool(arg(0).le_s(arg(1))); break;
         case Op::Kind::Concat: result = arg(0).concat(arg(1)); break;
         case Op::Kind::Slice: result = arg(0).slice_width(arg(1).as_uint64(), arg(2).as_uint64()); break;
-        case Kind::Shl: result = arg(0) << arg(1).as_uint64(); break;
-        case Kind::ShrU: result = arg(0).shr_u(arg(1).as_uint64()); break;
-        case Kind::ShrS: result = arg(0).shr_s(arg(1).as_uint64()); break;
-        case Op::Kind::Select: result = (arg(0))[0] ? arg(1) : arg(2); break;
+        case Kind::Shl: result = arg(0) << arg(1); break;
+        case Kind::ShrU: result = arg(0).shr_u(arg(1)); break;
+        case Kind::ShrS: result = arg(0).shr_s(arg(1)); break;
+        case Op::Kind::Select: result = arg(0).select(arg(1), arg(2)); break;
       }
       
       #undef binop
@@ -213,7 +214,8 @@ namespace hdl {
       return result;
     }
     
-    BitString eval(const std::vector<BitString>& values) const {
+    template <class T = BitString>
+    T eval(const std::vector<T>& values) const {
       if (values.size() != args.size()) {
         throw_error(Error,
           "Operator " << KIND_NAMES[size_t(kind)] <<
@@ -222,7 +224,7 @@ namespace hdl {
         );
       }
       
-      BitString const* value_ptrs[MAX_ARG_COUNT] = {nullptr};
+      T const* value_ptrs[MAX_ARG_COUNT] = {nullptr};
       for (size_t it = 0; it < values.size(); it++) {
         value_ptrs[it] = &values[it];
       }
