@@ -98,6 +98,14 @@ namespace hdl {
              kind == Kind::Eq;
     }
     
+    static bool is_associative(Kind kind) {
+      return kind == Kind::And ||
+             kind == Kind::Or ||
+             kind == Kind::Xor ||
+             kind == Kind::Add ||
+             kind == Kind::Concat;
+    }
+    
     const Kind kind;
     const std::vector<Value*> args;
     
@@ -551,6 +559,28 @@ namespace hdl {
           }
         } else if (rhs_const) {
           std::swap(args[0], args[1]);
+        }
+      }
+      
+      if (Op::is_associative(kind) && args.size() == 2) {
+        Constant* lhs_const = dynamic_cast<Constant*>(args[0]);
+        Op* rhs_op = dynamic_cast<Op*>(args[1]);
+        if (lhs_const && rhs_op && rhs_op->kind == kind) {
+          Constant* rhs_lhs_const = dynamic_cast<Constant*>(rhs_op->args[0]);
+          
+          if (rhs_lhs_const) {
+            const BitString* arg_values[] = {
+              &lhs_const->value,
+              &rhs_lhs_const->value
+            };
+            
+            Op op(kind, {lhs_const, rhs_lhs_const});
+            
+            args = {
+              constant(op.eval(arg_values)),
+              rhs_op->args[1]
+            };
+          }
         }
       }
       
