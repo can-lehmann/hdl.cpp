@@ -131,6 +131,14 @@ namespace hdl {
       return bit_string;
     }
     
+    static BitString upper(size_t width, size_t from_bit) {
+      BitString bit_string(width);
+      if (from_bit < width) {
+        bit_string.fill_upper(from_bit);
+      }
+      return bit_string;
+    }
+    
     static BitString random(size_t width) {
       BitString bit_string(width);
       for (size_t it = 0; it < width; it++) {
@@ -638,15 +646,24 @@ namespace hdl {
     }
     
     PartialBitString operator<<(size_t shift) const {
-      return PartialBitString(_known << shift, _value << shift);
+      return PartialBitString(
+        _known << shift | (shift > 0 ? (~BitString(shift)).zero_extend(width()) : BitString(width())),
+        _value << shift
+      );
     }
     
     PartialBitString shr_u(size_t shift) const {
-      return PartialBitString(_known.shr_u(shift), _value.shr_u(shift));
+      return PartialBitString(
+        _known.shr_u(shift) | BitString::upper(width(), shift >= width() ? 0 : width() - shift),
+        _value.shr_u(shift)
+      );
     }
     
     PartialBitString shr_s(size_t shift) const {
-      return PartialBitString(_known.shr_s(shift), _value.shr_s(shift));
+      return PartialBitString(
+        _known.shr_u(shift) | BitString::upper(width(), shift >= width() ? 0 : width() - shift),
+        _value.shr_s(shift)
+      );
     }
     
     PartialBitString operator<<(const PartialBitString& other) const {
@@ -712,6 +729,10 @@ namespace hdl {
     
     inline bool operator!=(const PartialBitString& other) const {
       return !(*this == other);
+    }
+    
+    size_t popcount_unknown() const {
+      return (~_known).popcount();
     }
     
     uint64_t as_uint64() const {
