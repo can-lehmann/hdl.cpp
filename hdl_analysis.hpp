@@ -16,6 +16,7 @@
 #define HDL_ANALYSIS_HPP
 
 #include <map>
+#include <unordered_set>
 
 #include "hdl.hpp"
 
@@ -147,6 +148,80 @@ namespace hdl {
         }
         return result;
       }
+    };
+    
+    class Dependencies {
+    private:
+      bool _indirect = false;
+      std::unordered_set<Value*> _values;
+      std::unordered_set<Reg*> _regs;
+      std::unordered_set<Memory*> _memories;
+    public:
+      Dependencies(bool indirect): _indirect(indirect) {}
+      
+      static Dependencies direct() { return Dependencies(false); }
+      static Dependencies indirect() { return Dependencies(true); }
+      
+      const std::unordered_set<Value*>& values() const { return _values; }
+      const std::unordered_set<Reg*>& regs() const { return _regs; }
+      const std::unordered_set<Memory*>& memories() const { return _memories; }
+      
+      bool has(Value* value) const {
+        return _values.find(value) != _values.end();
+      }
+      
+      bool has(Memory* memory) const {
+        return _memories.find(memory) != _memories.end();
+      }
+      
+      void trace(Value* value) {
+        if (_values.find(value) != _values.end()) {
+          return;
+        }
+        
+        std::vector<Value*> stack;
+        stack.push_back(value);
+        
+        #define push(value) \
+          if (_values.find(value) == _values.end()) { \
+            stack.push_back(value); \
+          }
+        
+        while (!stack.empty()) {
+          Value* value = stack.back();
+          stack.pop_back();
+          
+          _values.insert(value);
+          
+          if (Reg* reg = dynamic_cast<Reg*>(value)) {
+            _regs.insert(reg);
+            if (_indirect) {
+              push(reg->clock);
+              push(reg->next);
+            }
+          } else if (Op* op = dynamic_cast<Op*>(value)) {
+            for (Value* arg : op->args) {
+              push(arg);
+            }
+          } else if (Memory::Read* read = dynamic_cast<Memory::Read*>(value)) {
+            push(read->address);
+            if (_memories.find(read->memory) == _memories.end()) {
+              _memories.insert(read->memory);
+              if (_indirect) {
+                for (const Memory::Write& write : read->memory->writes) {
+                  push(write.clock);
+                  push(write.address);
+                  push(write.enable);
+                  push(write.value);
+                }
+              }
+            }
+          }
+        }
+        
+        #undef push
+      }
+      
     };
   }
 }
