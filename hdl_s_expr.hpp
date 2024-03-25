@@ -248,6 +248,15 @@ namespace hdl {
             args.push_back(read(stream));
           }
           
+          if (op_name == "Read") {
+            if (args.size() != 2) {
+              throw_error(Error, "Read operator expects 2 arguments, but got " << args.size());
+            }
+            hdl::Memory* memory = std::get<hdl::Memory*>(args[0]);
+            hdl::Value* address = std::get<hdl::Value*>(args[1]);
+            return memory->read(address);
+          }
+          
           std::optional<Op::Kind> kind;
           for (size_t it = 0; it < Op::KIND_COUNT; it++) {
             if (op_name == Op::KIND_NAMES[it]) {
