@@ -85,12 +85,16 @@ namespace hdl {
           return array;
         }
         
-        ::z3::expr build(const BitString& bit_string) {
+        static ::z3::expr build(const BitString& bit_string, ::z3::context& context) {
           bool bits[bit_string.width()];
           for (size_t it = 0; it < bit_string.width(); it++) {
             bits[it] = bit_string[it];
           }
-          return _context.bv_val(bit_string.width(), &bits[0]);
+          return context.bv_val(bit_string.width(), &bits[0]);
+        }
+        
+        ::z3::expr build(const BitString& bit_string) {
+          return build(bit_string, _context);
         }
         
         ::z3::expr resize_u(::z3::expr expr, size_t to) {
