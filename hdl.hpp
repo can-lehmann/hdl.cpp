@@ -810,6 +810,21 @@ namespace hdl {
               } else if (constant->value.is_all_ones()) {
                 return args[0];
               }
+            } else if (Op* op = dynamic_cast<Op*>(args[0])) {
+              // ShrS(Concat(n'b0, a), b) = Concat(n'b0, ShrU(a, b))
+              if (op->kind == Op::Kind::Concat) {
+                if (Constant* constant = dynamic_cast<Constant*>(op->args[0])) {
+                  if (constant->value.is_zero()) {
+                    return this->op(Op::Kind::Concat, {
+                      constant,
+                      this->op(Op::Kind::ShrU, {
+                        op->args[1],
+                        args[1]
+                      })
+                    });
+                  }
+                }
+              }
             }
             if (Constant* constant = dynamic_cast<Constant*>(args[1])) {
               if (constant->value.is_zero()) {
