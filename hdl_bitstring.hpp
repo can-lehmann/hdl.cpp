@@ -356,6 +356,12 @@ namespace hdl {
       }
     }
     
+    std::string to_string() const {
+      std::ostringstream stream;
+      write_short(stream);
+      return stream.str();
+    }
+    
     bool operator==(const BitString& other) const {
       if (_width != other._width) {
         return false;
@@ -395,6 +401,18 @@ namespace hdl {
       
       Word mask = high_word_mask();
       return (_data.back() & mask) == (~Word(0) & mask);
+    }
+    
+    bool is_uint(uint64_t value) {
+      for (size_t it = 0; it + 1 < _data.size(); it++) {
+        if (_data[it] != Word(value)) {
+          return false;
+        }
+        value = value >> WORD_WIDTH;
+      }
+      
+      Word mask = high_word_mask();
+      return (_data.back() & mask) == Word(value);
     }
     
     size_t hash() const {
@@ -720,6 +738,10 @@ namespace hdl {
         return true;
       }
       return false;
+    }
+    
+    bool contains(const PartialBitString& other) const {
+      return merge(other) == *this;
     }
     
     bool operator==(const PartialBitString& other) const {
