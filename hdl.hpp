@@ -1422,6 +1422,69 @@ namespace hdl {
       std::vector<BitString> _regs;
       std::unordered_map<const Memory*, MemoryData> _memories;
       std::vector<BitString> _outputs;
+      std::vector<const hdl::Value*> _probes;
+      
+    public:
+      Simulation(Module& module):
+          _module(module),
+          _regs(module.regs().size()),
+          _outputs(module.outputs().size()) {
+
+        size_t it = 0;
+        for (const Reg* reg : _module.regs()) {
+          _prev_clocks[reg->clock] = false;
+          _regs[it++] = BitString(reg->width);
+        }
+        
+        it = 0;
+        for (const Memory* memory : _module.memories()) {
+          _memories[memory] = MemoryData(memory);
+          for (const Memory::Write& write : memory->writes) {
+            _prev_clocks[write.clock] = false;
+          }
+        }
+        
+        reset();
+      }
+      
+      const std::vector<BitString>& regs() const { return _regs; };
+      const std::unordered_map<const Memory*, MemoryData>& memories() const { return _memories; };
+      const std::vector<BitString>& outputs() const { return _outputs; };
+      
+      const BitString& find_output(const std::string& name) const {
+        for (size_t it = 0; it < _outputs.size(); it++) {
+          if (_module.outputs()[it].name == name) {
+            return _outputs[it];
+          }
+        }
+        
+        throw_error(Error, "Output " << name << " not found");
+      }
+      
+      const BitString& find_reg(const std::string& name) const {
+        for (size_t it = 0; it < _regs.size(); it++) {
+          if (_module.regs()[it]->name == name) {
+            return _regs[it];
+          }
+        }
+        
+        throw_error(Error, "Reg " << name << " not found");
+      }
+      
+      void probe(const Value* value) {
+        _probes.push_back(value);
+      }
+      
+      void reset() {
+        size_t it = 0;
+        for (const Reg* reg : _module.regs()) {
+          _regs[it++] = reg->initial;
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          _memories[memory] = MemoryData(memory);
+        }
+      }
       
       BitString eval(const Value* value, Values& values) {
         if (values.find(value) != values.end()) {
@@ -1471,63 +1534,6 @@ namespace hdl {
         values[value] = result;
         return result;
       }
-    public:
-      Simulation(Module& module):
-          _module(module),
-          _regs(module.regs().size()),
-          _outputs(module.outputs().size()) {
-
-        size_t it = 0;
-        for (const Reg* reg : _module.regs()) {
-          _prev_clocks[reg->clock] = false;
-          _regs[it++] = BitString(reg->width);
-        }
-        
-        it = 0;
-        for (const Memory* memory : _module.memories()) {
-          _memories[memory] = MemoryData(memory);
-          for (const Memory::Write& write : memory->writes) {
-            _prev_clocks[write.clock] = false;
-          }
-        }
-        
-        reset();
-      }
-      
-      const std::vector<BitString>& regs() const { return _regs; };
-      const std::unordered_map<const Memory*, MemoryData>& memories() const { return _memories; };
-      const std::vector<BitString>& outputs() const { return _outputs; };
-      
-      const BitString& find_output(const std::string& name) const {
-        for (size_t it = 0; it < _outputs.size(); it++) {
-          if (_module.outputs()[it].name == name) {
-            return _outputs[it];
-          }
-        }
-        
-        throw_error(Error, "Output " << name << " not found");
-      }
-      
-      const BitString& find_reg(const std::string& name) const {
-        for (size_t it = 0; it < _regs.size(); it++) {
-          if (_module.regs()[it]->name == name) {
-            return _regs[it];
-          }
-        }
-        
-        throw_error(Error, "Reg " << name << " not found");
-      }
-      
-      void reset() {
-        size_t it = 0;
-        for (const Reg* reg : _module.regs()) {
-          _regs[it++] = reg->initial;
-        }
-        
-        for (const Memory* memory : _module.memories()) {
-          _memories[memory] = MemoryData(memory);
-        }
-      }
       
       Values update(const std::vector<BitString>& inputs) {
         if (inputs.size() != _module.inputs().size()) {
@@ -1556,12 +1562,12 @@ namespace hdl {
       }
       
       Values update(const Values& initial) {
-        while (true) {
-          Values values = initial;
-          if (!update_step(values)) {
-            return values;
-          }
+        Values values = initial;
+        while (update_step(values)) {}
+        for (const Value* probe : _probes) {
+          eval(probe, values);
         }
+        return values;
       }
       
       bool update_step(Values& values) {
