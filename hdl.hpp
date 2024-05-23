@@ -841,6 +841,10 @@ namespace hdl {
               } else {
                 return args[2];
               }
+            } else if (args[0] == args[1]) {
+              return this->op(Op::Kind::Or, {args[0], args[2]});
+            } else if (args[0] == args[2]) {
+              return this->op(Op::Kind::And, {args[0], args[1]});
             }
           break;
         }
