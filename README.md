@@ -167,7 +167,7 @@ hdl.cpp provides a yosys plugin which can be used as a verilog frontend.
 It can convert the RTLIL intermediate language to a `textir` file.
 
 ```bash
-yosys -m hdl.so -p "read_verilog top.v; proc; flatten; opt_expr; opt_clean; write_hdl -top top top.textir"
+yosys -m hdl.so -p "read_verilog top.v; hierarchy; proc; flatten; opt_expr; opt_clean; write_hdl -top top top.textir"
 ```
 
 ## License
