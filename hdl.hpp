@@ -1564,13 +1564,7 @@ namespace hdl {
       Values update(const Values& initial) {
         Values values = initial;
         while (update_step(values)) {}
-        for (const Value* probe : _probes) {
-          eval(probe, values);
-        }
-        return values;
-      }
-      
-      bool update_step(Values& values) {
+        
         size_t it = 0;
         for (const Reg* reg : _module.regs()) {
           values[reg] = _regs[it++];
@@ -1579,6 +1573,36 @@ namespace hdl {
         it = 0;
         for (const Output& output : _module.outputs()) {
           _outputs[it++] = eval(output.value, values);
+        }
+        
+        for (const Value* probe : _probes) {
+          eval(probe, values);
+        }
+        
+        return values;
+      }
+      
+      bool update_step(Values values) {
+        size_t it = 0;
+        for (const Reg* reg : _module.regs()) {
+          values[reg] = _regs[it++];
+        }
+        
+        for (const Memory* memory : _module.memories()) {
+          for (const Memory::Write& write : memory->writes) {
+            bool clock = eval(write.clock, values)[0];
+            if (clock && !_prev_clocks.at(write.clock)) {
+              bool enable = eval(write.enable, values)[0];
+              if (enable) {
+                eval(write.address, values);
+                eval(write.value, values);
+              }
+            }
+          }
+        }
+        
+        for (auto& [value, prev] : _prev_clocks) {
+          eval(value, values);
         }
         
         bool changed = false;
