@@ -255,6 +255,19 @@ namespace hdl {
             hdl::Memory* memory = std::get<hdl::Memory*>(args[0]);
             hdl::Value* address = std::get<hdl::Value*>(args[1]);
             return memory->read(address);
+          } else if (op_name == "Delay") {
+            if (args.size() != 3) {
+              throw_error(Error, "Delay operator expects 3 arguments, but got " << args.size());
+            }
+            hdl::Value* clock = std::get<hdl::Value*>(args[0]);
+            hdl::Constant* initial = dynamic_cast<Constant*>(std::get<hdl::Value*>(args[1]));
+            hdl::Value* value = std::get<hdl::Value*>(args[2]);
+            if (initial == nullptr) {
+              throw_error(Error, "Initial value must be constant");
+            }
+            Reg* delay_reg = _module.reg(initial->value, clock);
+            delay_reg->next = value;
+            return delay_reg;
           }
           
           std::optional<Op::Kind> kind;
@@ -282,6 +295,8 @@ namespace hdl {
       }
     public:
       Reader(Module& module): _module(module) {}
+      
+      Module& module() const { return _module; }
       
       void define(const std::string& name, Value value) {
         _bindings[name] = value;
