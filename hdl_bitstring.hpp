@@ -469,6 +469,22 @@ namespace hdl {
       return lt_s(other) || (*this) == other;
     }
     
+    BitString min_u(const BitString& other) const {
+      if (lt_u(other)) {
+        return *this;
+      } else {
+        return other;
+      }
+    }
+    
+    BitString max_u(const BitString& other) const {
+      if (lt_u(other)) {
+        return other;
+      } else {
+        return *this;
+      }
+    }
+    
     BitString concat(const BitString& other) const {
       size_t target = _width + other._width;
       return other.zero_extend(target) | (zero_extend(target) << other._width);

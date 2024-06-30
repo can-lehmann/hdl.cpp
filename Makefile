@@ -1,10 +1,11 @@
 all: tests/test_hdl tests/test_bitstring tests/test_textir examples/hdl examples/hdl_bitstring examples/hdl_dsl examples/hdl_proof examples/hdl_proof_z3 tools/hdl.so
 
-test: tests/test_hdl tests/test_bitstring tests/test_textir tests/test_flatten
+test: tests/test_hdl tests/test_bitstring tests/test_textir tests/test_flatten tests/test_analysis
 	./tests/test_bitstring
 	./tests/test_hdl
 	./tests/test_textir
 	./tests/test_flatten
+	./tests/test_analysis
 
 tools/hdl.so: tools/yosys_plugin.cpp hdl.hpp hdl_bitstring.hpp hdl_textir.hpp hdl_yosys.hpp
 	cd tools; yosys-config --build hdl.so yosys_plugin.cpp
@@ -20,6 +21,9 @@ tests/test_textir: tests/test_textir.cpp hdl.hpp hdl_bitstring.hpp hdl_textir.hp
 
 tests/test_flatten: tests/test_flatten.cpp hdl.hpp hdl_bitstring.hpp hdl_flatten.hpp
 	clang++ tests/test_flatten.cpp -o tests/test_flatten
+
+tests/test_analysis: tests/test_analysis.cpp hdl.hpp hdl_bitstring.hpp hdl_analysis.hpp
+	clang++ tests/test_analysis.cpp -o tests/test_analysis
 
 examples/hdl: examples/hdl.cpp hdl.hpp hdl_bitstring.hpp
 	clang++ examples/hdl.cpp -o examples/hdl
