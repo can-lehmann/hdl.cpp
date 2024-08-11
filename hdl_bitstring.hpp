@@ -16,6 +16,7 @@
 #define HDL_BITSTRING_HPP
 
 #include <inttypes.h>
+#include <string.h>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -32,13 +33,86 @@ namespace hdl {
   };
 
   class BitString {
-  private:
+  public:
     using Word = uint32_t;
     using DoubleWord = uint64_t;
     static constexpr const size_t WORD_WIDTH = sizeof(Word) * 8;
     
+    class WordArray {
+    private:
+      static constexpr const size_t SMALL_SIZE = 2;
+      
+      size_t _size = 0;
+      union {
+        Word _small[2];
+        Word* _data;
+      };
+      
+      inline bool is_small() const {
+        return _size <= SMALL_SIZE;
+      }
+    public:
+      WordArray(): WordArray(0) {}
+      WordArray(size_t size): _size(size) {
+        if (is_small()) {
+          memset(_small, 0, sizeof(_small));
+        } else {
+          _data = new Word[_size]();
+        }
+      }
+      
+      WordArray(const WordArray& other): _size(other.size()) {
+        if (is_small()) {
+          memcpy(_small, other._small, sizeof(_small));
+        } else {
+          _data = new Word[_size]();
+          memcpy(_data, other._data, sizeof(Word) * _size);
+        }
+      }
+      
+      WordArray& operator=(const WordArray& other) {
+        if (&other != this) {
+          this->~WordArray();
+          new (this) WordArray(other);
+        }
+        return *this;
+      } 
+      
+      ~WordArray() {
+        if (!is_small() && _data != nullptr) {
+          delete[] _data;
+          _data = nullptr;
+        }
+      }
+      
+      size_t size() const { return _size; }
+      const Word* begin() const { return is_small() ? _small : _data; }
+      const Word* end() const { return begin() + _size; }
+      Word* begin() { return is_small() ? _small : _data; }
+      Word* end() { return begin() + _size; }
+      
+      inline const Word& operator[](size_t index) const {
+        if (is_small()) {
+          return _small[index];
+        } else {
+          return _data[index];
+        }
+      }
+      
+      inline Word& operator[](size_t index) {
+        if (is_small()) {
+          return _small[index];
+        } else {
+          return _data[index];
+        }
+      }
+      
+      inline const Word& back() const { return (*this)[_size - 1]; } 
+    };
+    
+  private:
     size_t _width = 0;
-    std::vector<Word> _data;
+    WordArray _data;
     
     static size_t word_count(size_t width) {
       return width / WORD_WIDTH + (width % WORD_WIDTH == 0 ? 0 : 1);
@@ -148,6 +222,8 @@ namespace hdl {
     }
     
     inline size_t width() const { return _width; }
+    inline const WordArray& data() const { return _data; }
+    inline WordArray& data() { return _data; } 
     
     bool at(size_t index) const {
       if (index >= _width) {
@@ -807,12 +883,19 @@ namespace hdl {
     }
     
     bool merge_inplace(const PartialBitString& other) {
-      PartialBitString merged = merge(other);
-      if (merged != *this) {
-        *this = merged;
-        return true;
+      if (other.width() != width()) {
+        throw_error(Error, "PartialBitStrings must have the same width, but got " << width() << " and " << other.width());
       }
-      return false;
+      bool changed = false;
+      for (size_t it = 0; it < _known.data().size(); it++) {
+        BitString::Word old = _known.data()[it];
+        BitString::Word known = old & other._known.data()[it] & ~(_value.data()[it] ^ other._value.data()[it]);
+        if (old != known) {
+          changed = true;
+          _known.data()[it] = known;
+        }
+      }
+      return changed;
     }
     
     bool contains(const PartialBitString& other) const {
