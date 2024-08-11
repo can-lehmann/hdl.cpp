@@ -39,6 +39,9 @@ namespace hdl {
     
     class Lowering {
     private:
+      bool _adff_to_sdff = false;
+      bool _output_named_wires = false;
+      
       RTLIL::Module* _ys_module = nullptr;
       Yosys::SigMap _sigmap;
       Yosys::FfInitVals _ff_init_vals;
@@ -61,6 +64,14 @@ namespace hdl {
             }
           }
         }
+      }
+      
+      void set_adff_to_sdff(bool adff_to_sdff) {
+        _adff_to_sdff = adff_to_sdff;
+      }
+      
+      void set_output_named_wires(bool output_named_wires) {
+        _output_named_wires = output_named_wires;
       }
       
     private:
@@ -665,7 +676,7 @@ namespace hdl {
           std::cout << std::endl;
         }
         
-        if (cell->type.in(ID($dff), ID($dffe), ID($sdff), ID($sdffe))) {
+        if (cell->type.in(ID($dff), ID($dffe), ID($sdff), ID($sdffe), ID($adff), ID($adffe))) {
           lower_dff(cell, context);
         } else if (cell->type == ID($mux)) {
           lower_mux(cell, context);
@@ -814,7 +825,7 @@ namespace hdl {
           reg->clock = lower(clk, context);
           reg->next = lower(d, context);
           
-          if (cell->type.in(ID($dffe), ID($sdffe))) {
+          if (cell->type.in(ID($dffe), ID($sdffe), ID($adffe))) {
             RTLIL::SigSpec en = cell->getPort(RTLIL::ID::EN);
             
             Value* high = reg->next;
@@ -828,18 +839,52 @@ namespace hdl {
             });
           }
           
-          if (cell->type.in(ID($sdff), ID($sdffe))) {
-            RTLIL::SigSpec srst = cell->getPort(RTLIL::ID::SRST);
+          if (cell->type.in(ID($sdff), ID($sdffe), ID($adff), ID($adffe))) {
+            RTLIL::SigSpec reset;
+            RTLIL::Const reset_value;
+            bool polarity = false;
             
-            Value* high = hdl_module.constant(lower(cell->getParam(RTLIL::ID::SRST_VALUE), context));
+            if (cell->type.in(ID($adff), ID($adffe))) {
+              if (!_adff_to_sdff) {
+                throw_error(Error, RTLIL::id2cstr(cell->type) << " is not supported");
+              }
+              reset = cell->getPort(RTLIL::ID::ARST);
+              reset_value = cell->getParam(RTLIL::ID::ARST_VALUE);
+              polarity = cell->getParam(RTLIL::ID::ARST_POLARITY).is_fully_zero();
+            } else {
+              reset = cell->getPort(RTLIL::ID::SRST);
+              reset_value = cell->getParam(RTLIL::ID::SRST_VALUE);
+              polarity = cell->getParam(RTLIL::ID::SRST_POLARITY).is_fully_zero();
+            }
+            
+            Value* high = hdl_module.constant(lower(reset_value, context));
             Value* low = reg->next;
-            if (cell->getParam(RTLIL::ID::SRST_POLARITY).is_fully_zero()) {
+            if (polarity) {
               std::swap(high, low);
             }
             
             reg->next = hdl_module.op(Op::Kind::Select, {
-              lower(srst, context), high, low
+              lower(reset, context), high, low
             });
+          }
+        }
+        
+        if (_output_named_wires) {
+          for (RTLIL::Wire* wire : _ys_module->wires()) {
+            if (!wire->port_output && !wire->name.empty()) {
+              bool lowered = true;
+              RTLIL::SigSpec spec(wire);
+              for (const RTLIL::SigBit& bit : spec) {
+                if (!context.has(bit)) {
+                  lowered = false;
+                }
+              }
+              
+              if (lowered) {
+                Value* value = lower(spec, context);
+                hdl_module.output(RTLIL::id2cstr(wire->name), value);
+              }
+            }
           }
         }
       }

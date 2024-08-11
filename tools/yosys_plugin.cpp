@@ -36,6 +36,8 @@ struct HdlBackend : public Backend {
     
     RTLIL::Module* module = design->top_module();
     Mode mode = Mode::TextIr;
+    bool adff_to_sdff = false;
+    bool output_named_wires = false;
     
     int it = 1;
     while (it < args.size()) {
@@ -55,6 +57,12 @@ struct HdlBackend : public Backend {
       } else if (args[it] == "-verilog") {
         mode = Mode::Verilog;
         it++;
+      } else if (args[it] == "-adff2sdff") {
+        adff_to_sdff = true;
+        it++;
+      } else if (args[it] == "-output-named-wires") {
+        output_named_wires = true;
+        it++;
       } else {
         break;
       }
@@ -67,6 +75,8 @@ struct HdlBackend : public Backend {
     extra_args(file, filename, args, it);
     
     hdl::yosys::Lowering lowering(module);
+    lowering.set_adff_to_sdff(adff_to_sdff);
+    lowering.set_output_named_wires(output_named_wires);
     hdl::Module hdl_module(RTLIL::id2cstr(module->name));
     lowering.into(hdl_module);
     
