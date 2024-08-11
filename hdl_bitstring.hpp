@@ -334,6 +334,11 @@ namespace hdl {
       return result;
     }
     
+    BitString operator*(const BitString& other) const {
+      ensure_same_width(other);
+      return mul_u(other).truncate(_width);
+    }
+    
     void write(std::ostream& stream) const {
       stream << _width << "'b";
       for (size_t it = _width; it-- > 0;) {
@@ -403,7 +408,7 @@ namespace hdl {
       return (_data.back() & mask) == (~Word(0) & mask);
     }
     
-    bool is_uint(uint64_t value) {
+    bool is_uint(uint64_t value) const {
       for (size_t it = 0; it + 1 < _data.size(); it++) {
         if (_data[it] != Word(value)) {
           return false;
@@ -541,6 +546,60 @@ namespace hdl {
         }
       }
       return count;
+    }
+    
+    bool is_one_hot() const {
+      bool found = false;
+      for (size_t it = 0; it < _width; it++) {
+        if (at(it)) {
+          if (found) {
+            return false;
+          } else {
+            found = true;
+          }
+        }
+      }
+      return found;
+    }
+    
+    size_t floor_log2() const {
+      for (size_t it = _width; it-- > 0; ) {
+        if (at(it)) {
+          return it;
+        }
+      }
+      return 0;
+    }
+    
+    size_t ceil_log2() const {
+      bool is_power_of_two = true;
+      size_t log2 = 0;
+      for (size_t it = _width; it-- > 1; ) {
+        if (at(it)) {
+          if (log2 == 0) {
+            log2 = it;
+          } else {
+            is_power_of_two = false;
+            break;
+          }
+        }
+      }
+      if (!is_power_of_two && log2 != 0) {
+        log2++;
+      }
+      return log2;
+    }
+    
+    inline size_t flog2() const { return floor_log2(); }
+    inline size_t clog2() const { return ceil_log2(); }
+    
+    size_t find_bit(bool bit) const {
+      for (size_t it = 0; it < _width; it++) {
+        if (at(it) == bit) {
+          return it;
+        }
+      }
+      return _width;
     }
     
     BitString select(const BitString& then, const BitString& otherwise) const {
