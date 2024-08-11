@@ -104,7 +104,7 @@ namespace hdl {
           } else if (to > width) {
             return ::z3::zext(expr, to - width);
           } else {
-            throw Error("Not implemented");
+            return expr.extract(to - 1, 0);
           }
         }
         
