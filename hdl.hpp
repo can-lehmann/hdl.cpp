@@ -41,14 +41,14 @@ namespace hdl {
     virtual ~Value() {}
   };
   
-  struct Input: public Value {
+  struct Input final: public Value {
     std::string name;
     
     Input(const std::string& _name, size_t _width):
       Value(_width), name(_name) {}
   };
   
-  struct Reg: public Value {
+  struct Reg final: public Value {
     BitString initial;
     Value* clock = nullptr;
     Value* next = nullptr;
@@ -60,7 +60,7 @@ namespace hdl {
   
   struct Comb: public Value { using Value::Value; };
   
-  struct Constant: public Comb {
+  struct Constant final: public Comb {
     const BitString value;
     
     Constant(const BitString& _value):
@@ -71,11 +71,11 @@ namespace hdl {
     }
   };
   
-  struct Unknown: public Comb {
+  struct Unknown final: public Comb {
     Unknown(size_t _width): Comb(_width) {}
   };
   
-  struct Op: public Comb {
+  struct Op final: public Comb {
     enum class Kind {
       And, Or, Xor, Not,
       Add, Sub, Mul,
@@ -287,7 +287,7 @@ namespace hdl {
         clock(_clock), address(_address), enable(_enable), value(_value) {}
     };
     
-    struct Read : public Comb {
+    struct Read final: public Comb {
       Memory* memory = nullptr;
       Value* address = nullptr;
       
