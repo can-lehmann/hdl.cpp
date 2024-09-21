@@ -829,8 +829,9 @@ namespace hdl {
     }
     
     PartialBitString shr_s(size_t shift) const {
+      BitString upper = BitString::upper(width(), shift >= width() ? 0 : width() - shift);
       return PartialBitString(
-        _known.shr_u(shift) | BitString::upper(width(), shift >= width() ? 0 : width() - shift),
+        _known.shr_u(shift) | (_known.at(width() - 1) ? upper : BitString(width())),
         _value.shr_s(shift)
       );
     }

@@ -295,6 +295,20 @@ int main() {
     assert(~PartialBitString("01x") == PartialBitString("10x"));
   });
   
+  Test("PartialBitString::shr_u").run([](){
+    assert(PartialBitString("000111xxx").shr_u(2) == PartialBitString("00000111x"));
+    assert(PartialBitString("000111xxx").shr_u(100) == PartialBitString("000000000"));
+  });
+  
+  Test("PartialBitString::shr_s").run([](){
+    assert(PartialBitString("000111xxx").shr_s(2) == PartialBitString("00000111x"));
+    assert(PartialBitString("100111xxx").shr_s(2) == PartialBitString("11100111x"));
+    assert(PartialBitString("100111xxx").shr_s(100) == PartialBitString("111111111"));
+    assert(PartialBitString("x00111xxx").shr_s(2) == PartialBitString("xxx00111x"));
+    assert(PartialBitString("x00111xxx").shr_s(100) == PartialBitString("xxxxxxxxx"));
+  });
+  
+  
   Test("PartialBitString::merge").run([](){
     assert(PartialBitString("000111xxx").merge(PartialBitString("01x01x01x")) == PartialBitString("0xxx1xxxx"));
   });
