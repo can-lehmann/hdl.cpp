@@ -697,6 +697,15 @@ namespace hdl {
       return _width;
     }
     
+    size_t rfind_bit(bool bit) const {
+      for (size_t it = _width; it-- > 0; ) {
+        if (at(it) == bit) {
+          return it;
+        }
+      }
+      return _width;
+    }
+    
     BitString select(const BitString& then, const BitString& otherwise) const {
       if (_width != 1) {
         throw_error(Error, "Condition must be of width 1, but got BitString of width " << _width);
