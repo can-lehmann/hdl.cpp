@@ -300,32 +300,45 @@ namespace hdl {
       return add_carry<true, true>(other);
     }
     
-    BitString operator<<(size_t shift) const {
+  private:
+    inline void shl_into(BitString& into, size_t shift) const {
       size_t inner_shift = shift % WORD_WIDTH;
       size_t outer_shift = shift / WORD_WIDTH;
       
-      BitString result(_width);
-      for (size_t it = 0; it + outer_shift < _data.size(); it++) {
-        result._data[it + outer_shift] |= _data[it] << inner_shift;
-        if (it + outer_shift + 1 < result._data.size() && inner_shift > 0) {
-          result._data[it + outer_shift + 1] |= _data[it] >> (WORD_WIDTH - inner_shift);
+      for (size_t it = 0; it + outer_shift < into._data.size() && it < _data.size(); it++) {
+        into._data[it + outer_shift] |= _data[it] << inner_shift;
+        if (it + outer_shift + 1 < into._data.size() && inner_shift > 0) {
+          into._data[it + outer_shift + 1] |= _data[it] >> (WORD_WIDTH - inner_shift);
         }
       }
+    }
+    
+    inline void shr_u_into(BitString& into, size_t shift) const {
+      size_t inner_shift = shift % WORD_WIDTH;
+      size_t outer_shift = shift / WORD_WIDTH;
+      
+      for (size_t it = outer_shift; it < _data.size(); it++) {
+        Word word = it + 1 == _data.size() ? _data[it] & high_word_mask() : _data[it];
+        if (it > outer_shift && inner_shift > 0) {
+          into._data[it - outer_shift - 1] |= word << (WORD_WIDTH - inner_shift);
+        }
+        if (it - outer_shift >= into._data.size()) {
+          break;
+        }
+        into._data[it - outer_shift] |= word >> inner_shift;
+      }
+    }
+    
+  public:
+    BitString operator<<(size_t shift) const {
+      BitString result(_width);
+      shl_into(result, shift);
       return result;
     }
     
     BitString shr_u(size_t shift) const {
-      size_t inner_shift = shift % WORD_WIDTH;
-      size_t outer_shift = shift / WORD_WIDTH;
-      
       BitString result(_width);
-      for (size_t it = outer_shift; it < _data.size(); it++) {
-        Word word = it + 1 == _data.size() ? _data[it] & high_word_mask() : _data[it];
-        result._data[it - outer_shift] |= word >> inner_shift;
-        if (it > outer_shift && inner_shift > 0) {
-          result._data[it - outer_shift - 1] |= word << (WORD_WIDTH - inner_shift);
-        }
-      }
+      shr_u_into(result, shift);
       return result;
     }
   
@@ -567,8 +580,11 @@ namespace hdl {
     }
     
     BitString concat(const BitString& other) const {
-      size_t target = _width + other._width;
-      return other.zero_extend(target) | (zero_extend(target) << other._width);
+      BitString result(_width + other._width);
+      std::copy(other._data.begin(), other._data.end(), result._data.begin());
+      result._data[other._data.size() - 1] &= other.high_word_mask();
+      shl_into(result, other._width);
+      return result;
     }
     
     BitString slice_width(size_t offset, size_t width) const {
@@ -578,7 +594,10 @@ namespace hdl {
           "is out of bounds for BitString of width " << _width
         );
       }
-      return (*this >> offset).truncate(width);
+      
+      BitString result(width);
+      shr_u_into(result, offset);
+      return result;
     }
     
     uint64_t as_uint64() const {
