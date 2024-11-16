@@ -951,6 +951,13 @@ namespace hdl {
       return _value.as_uint64();
     }
     
+    hdl::BitString as_bit_string() const {
+      if (!is_fully_known()) {
+        throw_error(Error, "PartialBitString is not fully known");
+      }
+      return _value;
+    }
+    
     void write(std::ostream& stream) const {
       stream << width() << "'b";
       for (size_t it = width(); it-- > 0; ) {
