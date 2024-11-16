@@ -20,6 +20,12 @@
 
 #include "hdl.hpp"
 
+#define throw_error(Error, msg) { \
+  std::ostringstream error_message; \
+  error_message << msg; \
+  throw Error(error_message.str()); \
+}
+
 namespace hdl {
   namespace analysis {
     struct AffineValue {
@@ -262,6 +268,8 @@ namespace hdl {
       BitString min;
       BitString max;
       
+      Interval() {}
+      
       Interval(const BitString& _value):
         min(_value), max(_value) {}
       
@@ -287,6 +295,7 @@ namespace hdl {
       
       inline size_t width() const { return min.width(); }
       inline bool has_unsigned_wrap() const { return max.lt_u(min); }
+      inline bool is_fully_known() const { return min == max; }
     
     private:
       static BitString dist(const BitString& low, const BitString& high) {
@@ -318,6 +327,19 @@ namespace hdl {
         }
       }
       
+      bool contains(uint64_t value) const {
+        BitString bit_string = BitString::from_uint(value);
+        if (bit_string.width() > width()) {
+          if (!bit_string.slice_width(width(), bit_string.width() - width()).is_zero()) {
+            return false;
+          }
+          bit_string = bit_string.truncate(width());
+        } else if (bit_string.width() < width()) {
+          bit_string = bit_string.zero_extend(width());
+        }
+        return contains(bit_string);
+      }
+      
       // Flattens the interval into a ring of higher modulus.
       // Consider [3'h6, 3'h2]
       //   --]---[-|
@@ -339,6 +361,10 @@ namespace hdl {
         } else {
           return Interval(BitString(to_width), ~BitString(to_width));
         }
+      }
+      
+      Interval truncate(size_t to_width) {
+        return truncate(BitString(to_width), to_width);
       }
       
     private:
@@ -430,6 +456,13 @@ namespace hdl {
         }
       }
       
+      uint64_t as_uint64() const {
+        if (!is_fully_known()) {
+          throw_error(Error, "Interval is not fully known");
+        }
+        return min.as_uint64();
+      }
+      
       // All remaining operators are implemented by convering to PartialBitString.
       // This may lose some precision.
       
@@ -444,7 +477,6 @@ namespace hdl {
       binop(operator|, Interval, a | b)
       binop(operator^, Interval, a ^ b)
       binop(mul_u, Interval, a.mul_u(b))
-      binop(concat, Interval, a.concat(b))
       binop(operator<<, Interval, a << b)
       binop(shr_u, Interval, a.shr_u(b))
       binop(shr_s, Interval, a.shr_s(b))
@@ -456,6 +488,30 @@ namespace hdl {
       binop(le_s, PartialBitString::Bool, a.le_s(b))
       
       #undef binop
+      
+      Interval concat(const Interval& other) const {
+        if (other.has_unsigned_wrap()) {
+          return Interval(
+            min.concat(BitString(width())),
+            max.concat(~BitString(width()))
+          );
+        } else {
+          return Interval(
+            min.concat(other.min),
+            max.concat(other.max)
+          );
+        }
+      }
+      
+    private:
+      Interval shr_u(size_t offset) const {
+        return Interval(min.shr_u(offset), max.shr_u(offset));
+      }
+      
+    public:
+      Interval slice_width(size_t offset, size_t width) const {
+        return shr_u(offset).truncate(width);
+      }
       
       void write(std::ostream& stream) const {
         if (min == max) {
@@ -491,5 +547,12 @@ namespace hdl {
     };
   }
 }
+
+std::ostream& operator<<(std::ostream& stream, const hdl::analysis::Interval& interval) {
+  interval.write(stream);
+  return stream;
+}
+
+#undef throw_error
 
 #endif
