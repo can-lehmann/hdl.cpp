@@ -235,12 +235,18 @@ int main() {
       BitString("10000000000000000000000000000000").concat(BitString("1000000000000000000000"))
       == BitString("100000000000000000000000000000001000000000000000000000")
     );
+    assert(
+      BitString("10001010000100100100001110000000100100010010").concat(BitString("1000111000101010110100011111010000100100000"))
+      == BitString("100010100001001001000011100000001001000100101000111000101010110100011111010000100100000")
+    );
   });
   
   Test("BitString::slice_width").run([](){
     assert(BitString("1000110").slice_width(4, 3) == BitString("100"));
     assert(BitString("100000000000000000000000000000000").slice_width(32, 1) == BitString("1"));
     assert(BitString("100000000000000000000000000000000").slice_width(31, 2) == BitString("10"));
+    assert(BitString("110000000000000000000000000000000").slice_width(31, 2) == BitString("11"));
+    assert(BitString("0100100000000000000000000000000000000").slice_width(31, 5) == BitString("10010"));
   });
   
   Test("BitString::as_uint64").run([](){
