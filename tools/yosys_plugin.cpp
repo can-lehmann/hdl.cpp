@@ -39,7 +39,7 @@ struct HdlBackend : public Backend {
     bool adff_to_sdff = false;
     bool output_named_wires = false;
     
-    int it = 1;
+    size_t it = 1;
     while (it < args.size()) {
       if (args[it] == "-top") {
         it++;
