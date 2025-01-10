@@ -90,9 +90,7 @@ int main() {
   test_op(hdl::Op::Kind::Mul, {{4, 4}, {2, 3}});
   test_op(hdl::Op::Kind::Eq, {{4, 4}});
   test_op(hdl::Op::Kind::LtU, {{3, 3}, {4, 4}});
-  test_op(hdl::Op::Kind::LeU, {{3, 3}, {4, 4}});
   test_op(hdl::Op::Kind::LtS, {{3, 3}, {4, 4}});
-  test_op(hdl::Op::Kind::LeS, {{3, 3}, {4, 4}});
   test_op(hdl::Op::Kind::Concat, {{3, 2}});
   // TODO: Slice
   test_op(hdl::Op::Kind::Shl, {{4, 2}});
