@@ -67,24 +67,24 @@ E.g. `module.op(hdl::Op::Kind::Not, {module.op(hdl::Op::Kind::Not, {a})}) == a` 
 
 The following operators are available for representing combinatorial logic.
 
-| Operator | Type                       |
-| -------- | -------------------------- |
-| And      | `(a, a) -> a`              |
-| Or       | `(a, a) -> a`              |
-| Xor      | `(a, a) -> a`              |
-| Not      | `a -> a`                   |
-| Add      | `(a, a) -> a`              |
-| Sub      | `(a, a) -> a`              |
-| Mul      | `(a, b) -> a + b`          |
-| Eq       | `(a, a) -> 1`              |
-| LtU      | `(a, a) -> 1`              |
-| LtS      | `(a, a) -> 1`              |
-| Concat   | `(a, b) -> a + b`          |
-| Slice    | `(a, b, Constant[w]) -> w` |
-| Shl      | `(a, b) -> a`              |
-| ShrU     | `(a, b) -> a`              |
-| ShrS     | `(a, b) -> a`              |
-| Select   | `(1, a, a) -> a`           |
+| Operator | Type                                 |
+| -------- | ------------------------------------ |
+| And      | `(a, a) -> a`                        |
+| Or       | `(a, a) -> a`                        |
+| Xor      | `(a, a) -> a`                        |
+| Not      | `a -> a`                             |
+| Add      | `(a, a) -> a`                        |
+| Sub      | `(a, a) -> a`                        |
+| Mul      | `(a, b) -> a + b`                    |
+| Eq       | `(a, a) -> 1`                        |
+| LtU      | `(a, a) -> 1`                        |
+| LtS      | `(a, a) -> 1`                        |
+| Concat   | `(a, b) -> a + b`                    |
+| Slice    | `(a, Constant[o], Constant[w]) -> w` |
+| Shl      | `(a, b) -> a`                        |
+| ShrU     | `(a, b) -> a`                        |
+| ShrS     | `(a, b) -> a`                        |
+| Select   | `(1, a, a) -> a`                     |
 
 ### Memories
 

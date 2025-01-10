@@ -137,6 +137,17 @@ namespace hdl {
       }
     }
     
+    static const BitString& expect_constant(Kind& kind, const std::vector<Value*>& args, size_t index) {
+      if (Constant* constant = dynamic_cast<Constant*>(args[index])) {
+        return constant->value;
+      } else {
+        throw_error(Error,
+          "Operator " << KIND_NAMES[(size_t)kind] <<
+          " expected argument " << index << " to be constant."
+        );
+      }
+    }
+    
     static size_t infer_width(Kind& kind, const std::vector<Value*>& args) {
       expect_arg_count(kind, args);
       
@@ -159,16 +170,17 @@ namespace hdl {
           return 1;
         case Kind::Concat:
           return args[0]->width + args[1]->width;
-        case Kind::Slice:
-          if (const Constant* constant = dynamic_cast<const Constant*>(args[2])) {
-            size_t width = (size_t)constant->value.as_uint64();
-            return width;
-          } else {
+        case Kind::Slice: {
+          size_t offset = (size_t)expect_constant(kind, args, 1).as_uint64();
+          size_t width = (size_t)expect_constant(kind, args, 2).as_uint64();
+          if (offset + width > args[0]->width) {
             throw_error(Error,
-              "Third argument of " << KIND_NAMES[(size_t)kind] <<
-              " operator must be constant."
+              "Slice [" << (offset + width - 1) << ":" << offset << "] " <<
+              "is out of bounds for value of width " << args[0]->width
             );
           }
+          return width;
+        }
         break;
         case Kind::Shl:
         case Kind::ShrU:
@@ -700,17 +712,13 @@ namespace hdl {
                 op_low->kind == Op::Kind::Slice &&
                 op_high->args[0] == op_low->args[0]) {
               
-              Constant* const_low_offset = dynamic_cast<Constant*>(op_low->args[1]);
-              Constant* const_high_offset = dynamic_cast<Constant*>(op_high->args[1]);
+              size_t low_offset = dynamic_cast<Constant*>(op_low->args[1])->value.as_uint64();
               size_t low_width = dynamic_cast<Constant*>(op_low->args[2])->value.as_uint64();
+              
+              size_t high_offset = dynamic_cast<Constant*>(op_high->args[1])->value.as_uint64();
               size_t high_width = dynamic_cast<Constant*>(op_high->args[2])->value.as_uint64();
               
-              bool is_contiguous =
-                const_low_offset != nullptr &&
-                const_high_offset != nullptr &&
-                const_low_offset->value.as_uint64() + low_width == const_high_offset->value.as_uint64();
-              
-              if (is_contiguous) {
+              if (low_offset + low_width == high_offset) {
                 return this->op(Op::Kind::Slice, {
                   op_low->args[0],
                   op_low->args[1],
@@ -721,43 +729,34 @@ namespace hdl {
           }
           break;
           case Op::Kind::Slice: {
-            Constant* constant_offset = dynamic_cast<Constant*>(args[1]);
+            size_t offset = dynamic_cast<Constant*>(args[1])->value.as_uint64();
             size_t width = dynamic_cast<Constant*>(args[2])->value.as_uint64();
-            if (constant_offset != nullptr &&
-                constant_offset->value.is_zero() &&
-                width == args[0]->width) {
-              return args[0];
-            } else if (Op* op = dynamic_cast<Op*>(args[0])) {
+            
+            if (Op* op = dynamic_cast<Op*>(args[0])) {
               switch (op->kind) {
                 case Op::Kind::Concat:
-                  if (constant_offset != nullptr) {
-                    size_t offset = constant_offset->value.as_uint64();
-                    if (offset + width <= op->args[1]->width) {
-                      return this->op(Op::Kind::Slice, {
-                        op->args[1],
-                        args[1],
-                        args[2]
-                      });
-                    } else if (offset >= op->args[1]->width) {
-                      return this->op(Op::Kind::Slice, {
-                        op->args[0],
-                        this->constant(BitString::from_uint(offset - op->args[1]->width)),
-                        args[2]
-                      });
-                    }
-                  }
-                break;
-                case Op::Kind::Slice:
-                  if (Constant* inner_constant_offset = dynamic_cast<Constant*>(op->args[1])) {
-                    size_t offset = constant_offset->value.as_uint64();
-                    size_t inner_offset = inner_constant_offset->value.as_uint64();
-                    
+                  if (offset + width <= op->args[1]->width) {
+                    return this->op(Op::Kind::Slice, {
+                      op->args[1],
+                      args[1],
+                      args[2]
+                    });
+                  } else if (offset >= op->args[1]->width) {
                     return this->op(Op::Kind::Slice, {
                       op->args[0],
-                      this->constant(BitString::from_uint(offset + inner_offset)),
+                      this->constant(BitString::from_uint(offset - op->args[1]->width)),
                       args[2]
                     });
                   }
+                break;
+                case Op::Kind::Slice: {
+                  size_t inner_offset = dynamic_cast<Constant*>(op->args[1])->value.as_uint64();
+                  return this->op(Op::Kind::Slice, {
+                    op->args[0],
+                    this->constant(BitString::from_uint(offset + inner_offset)),
+                    args[2]
+                  });
+                }
                 break;
                 default: break;
               }

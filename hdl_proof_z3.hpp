@@ -139,13 +139,9 @@ namespace hdl {
               case Op::Kind::LtS: expr = bool2bv(::z3::slt(arg(0), arg(1))); break;
               case Op::Kind::Concat: expr = ::z3::concat(arg(0), arg(1)); break;
               case Op::Kind::Slice: {
+                size_t offset = dynamic_cast<const Constant*>(op->args[1])->value.as_uint64();
                 size_t width = dynamic_cast<const Constant*>(op->args[2])->value.as_uint64();
-                if (const Constant* const_offset = dynamic_cast<const Constant*>(op->args[1])) {
-                  size_t offset = const_offset->value.as_uint64();
-                  expr = arg(0).extract(offset + width - 1, offset);
-                } else {
-                  expr = ::z3::lshr(arg(0), arg(1)).extract(width - 1, 0);
-                }
+                expr = arg(0).extract(offset + width - 1, offset);
               }
               break;
               case Op::Kind::Shl: expr = ::z3::shl(arg(0), resize_u(arg(1), op->args[0]->width)); break;
