@@ -79,8 +79,6 @@ The following operators are available for representing combinatorial logic.
 | Eq       | `(a, a) -> 1`              |
 | LtU      | `(a, a) -> 1`              |
 | LtS      | `(a, a) -> 1`              |
-| LeU      | `(a, a) -> 1`              |
-| LeS      | `(a, a) -> 1`              |
 | Concat   | `(a, b) -> a + b`          |
 | Slice    | `(a, b, Constant[w]) -> w` |
 | Shl      | `(a, b) -> a`              |

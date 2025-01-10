@@ -77,12 +77,9 @@ namespace hdl {
   
   struct Op final: public Comb {
     enum class Kind {
-      And, Or, Xor, Not,
-      Add, Sub, Mul,
-      Eq, LtU, LtS, LeU, LeS,
-      Concat, Slice,
-      Shl, ShrU, ShrS,
-      Select
+      #define def_op(name, ...) name,
+      #include "ops.inc.h"
+      #undef def_op
     };
     
     static constexpr const size_t KIND_COUNT = size_t(Kind::Select) + 1;
@@ -110,11 +107,21 @@ namespace hdl {
     const std::vector<Value*> args;
     
   private:
-    static void expect_arg_count(Kind& kind, const std::vector<Value*>& args, size_t count) {
-      if (args.size() != count) {
+    static size_t arg_count(Kind kind) {
+      switch (kind) {
+      #define def_op(name, arg_count, ...) case Kind::name: return arg_count;
+      #include "ops.inc.h"
+      #undef def_op
+      }
+      return 0;
+    }
+    
+    static void expect_arg_count(Kind& kind, const std::vector<Value*>& args) {
+      size_t expected = arg_count(kind);
+      if (args.size() != expected) {
         throw_error(Error,
           "Operator " << KIND_NAMES[(size_t)kind] <<
-          " expected " << count << " arguments, but got " << args.size()
+          " expected " << expected << " arguments, but got " << args.size()
         );
       }
     }
@@ -131,34 +138,28 @@ namespace hdl {
     }
     
     static size_t infer_width(Kind& kind, const std::vector<Value*>& args) {
+      expect_arg_count(kind, args);
+      
       switch (kind) {
         case Kind::Not:
-          expect_arg_count(kind, args, 1);
           return args[0]->width;
         case Kind::And:
         case Kind::Or:
         case Kind::Xor:
         case Kind::Add:
         case Kind::Sub:
-          expect_arg_count(kind, args, 2);
           expect_equal_width(kind, args, 0, 1);
           return args[0]->width;
         case Kind::Mul:
-          expect_arg_count(kind, args, 2);
           return args[0]->width + args[1]->width;
         case Kind::Eq:
         case Kind::LtU:
         case Kind::LtS:
-        case Kind::LeU:
-        case Kind::LeS:
-          expect_arg_count(kind, args, 2);
           expect_equal_width(kind, args, 0, 1);
           return 1;
         case Kind::Concat:
-          expect_arg_count(kind, args, 2);
           return args[0]->width + args[1]->width;
         case Kind::Slice:
-          expect_arg_count(kind, args, 3);
           if (const Constant* constant = dynamic_cast<const Constant*>(args[2])) {
             size_t width = (size_t)constant->value.as_uint64();
             return width;
@@ -172,10 +173,14 @@ namespace hdl {
         case Kind::Shl:
         case Kind::ShrU:
         case Kind::ShrS:
-          expect_arg_count(kind, args, 2);
           return args[0]->width;
         case Kind::Select:
-          expect_arg_count(kind, args, 3);
+          if (args[0]->width != 1) {
+            throw_error(Error,
+              "First argument of " << KIND_NAMES[(size_t)kind] <<
+              " operator must have width 1, but got value of width " << args[0]->width << "."
+            );
+          }
           expect_equal_width(kind, args, 1, 2);
           return args[1]->width;
       }
@@ -206,8 +211,6 @@ namespace hdl {
         case Op::Kind::Eq: result = T::from_bool(arg(0).eq(arg(1))); break;
         case Op::Kind::LtU: result = T::from_bool(arg(0).lt_u(arg(1))); break;
         case Op::Kind::LtS: result = T::from_bool(arg(0).lt_s(arg(1))); break;
-        case Op::Kind::LeU: result = T::from_bool(arg(0).le_u(arg(1))); break;
-        case Op::Kind::LeS: result = T::from_bool(arg(0).le_s(arg(1))); break;
         case Op::Kind::Concat: result = arg(0).concat(arg(1)); break;
         case Op::Kind::Slice: result = arg(0).slice_width(arg(1).as_uint64(), arg(2).as_uint64()); break;
         case Kind::Shl: result = arg(0) << arg(1); break;
@@ -241,12 +244,9 @@ namespace hdl {
   };
   
   const char* Op::KIND_NAMES[] = {
-    "And", "Or", "Xor", "Not",
-    "Add", "Sub", "Mul",
-    "Eq", "LtU", "LtS", "LeU", "LeS",
-    "Concat", "Slice",
-    "Shl", "ShrU", "ShrS",
-    "Select"
+    #define def_op(name, ...) #name,
+    #include "ops.inc.h"
+    #undef def_op
   };
   
   std::ostream& operator<<(std::ostream& stream, const Op::Kind& kind) {
@@ -690,21 +690,6 @@ namespace hdl {
               return constant(BitString::from_bool(false));
             }
           break;
-          case Op::Kind::LeU:
-            if (args[0] == args[1]) {
-              return constant(BitString::from_bool(true));
-            }
-            if (Constant* constant_a = dynamic_cast<Constant*>(args[0])) {
-              if (constant_a->value.is_zero()) {
-                return constant(BitString::from_bool(true));
-              }
-            }
-          break;
-          case Op::Kind::LeS:
-            if (args[0] == args[1]) {
-              return constant(BitString::from_bool(true));
-            }
-          break;
           case Op::Kind::Concat: {
             Op* op_high = dynamic_cast<Op*>(args[0]);
             Op* op_low = dynamic_cast<Op*>(args[1]);
@@ -1041,8 +1026,6 @@ namespace hdl {
             case Op::Kind::Eq: expr << args[0] << " == " << args[1]; break;
             case Op::Kind::LtU: expr << "$unsigned(" << args[0] << ") < $unsigned(" << args[1] << ")"; break;
             case Op::Kind::LtS: expr << "$signed(" << args[0] << ") < $signed(" << args[1] << ")"; break;
-            case Op::Kind::LeU: expr << "$unsigned(" << args[0] << ") <= $unsigned(" << args[1] << ")"; break;
-            case Op::Kind::LeS: expr << "$signed(" << args[0] << ") <= $signed(" << args[1] << ")"; break;
             case Op::Kind::Concat: expr << '{' << args[0] << ',' << args[1] << '}'; break;
             case Op::Kind::Slice:
               expr << args[0] << '[';
@@ -1214,7 +1197,7 @@ namespace hdl {
         size_t operator[](const Memory* memory) const { return memory_ids.at(memory); }
       };
       
-      static const char** const arg_names(Op::Kind kind) {
+      static const char** arg_names(Op::Kind kind) {
         #define names(...) { \
           static const char* array[] = {__VA_ARGS__}; \
           return array; \
@@ -1223,9 +1206,7 @@ namespace hdl {
         switch (kind) {
           case Op::Kind::Sub:
           case Op::Kind::LtU:
-          case Op::Kind::LtS:
-          case Op::Kind::LeU:
-          case Op::Kind::LeS: names("a", "b");
+          case Op::Kind::LtS: names("a", "b");
           case Op::Kind::Concat: names("high", "low");
           case Op::Kind::Slice: names("value", "offset", "width");
           case Op::Kind::Select: names("cond", "a", "b");
@@ -1648,25 +1629,34 @@ namespace hdl {
       size_t _timestamp = 0;
       bool _header_written = false;
       
-      std::unordered_map<const Value*, std::string> _name_overrides;
+      struct Probe {
+        std::string name;
+        const Value* value = nullptr;
+        
+        Probe() {}
+        Probe(const std::string& _name, const Value* _value):
+          name(_name), value(_value) {}
+      };
+      
+      std::vector<Probe> _probes;
       std::unordered_map<const Value*, BitString> _prev;
       std::unordered_map<const Value*, size_t> _ids;
       
-      std::string name(const Value* value) {
-        if (_name_overrides.find(value) != _name_overrides.end()) {
-          return _name_overrides.at(value);
-        } else if (const Input* input = dynamic_cast<const Input*>(value)) {
-          if (input->name.size() > 0) {
-            return input->name;
+      std::string escape_name(const std::string& name) {
+        const size_t MAX_SIZE = 48;
+        
+        std::string escaped;
+        escaped.reserve(std::min(name.size(), MAX_SIZE));
+        for (char chr : name) {
+          if (escaped.size() >= MAX_SIZE) {
+            break;
           }
-        } else if (const Reg* reg = dynamic_cast<const Reg*>(value)) {
-          if (reg->name.size() > 0) {
-            return reg->name;
+          if (chr != '$' && chr != '\\' && chr != '/') {
+            escaped.push_back(chr);
           }
         }
         
-        size_t id = _ids.at(value);
-        return std::string("v") + std::to_string(id);
+        return escaped;
       }
       
       void print_id(size_t id) {
@@ -1706,11 +1696,11 @@ namespace hdl {
           _prev(module.regs().size()) {
         
         for (const Reg* reg : _module.regs()) {
-          probe(reg);
+          probe(reg, reg->name);
         }
         
         for (const Input* input : _module.inputs()) {
-          probe(input);
+          probe(input, input->name);
         }
         
         for (const Output& output : _module.outputs()) {
@@ -1729,27 +1719,23 @@ namespace hdl {
       inline size_t timestamp() const { return _timestamp; }
       inline void set_timestamp(size_t timestamp) { _timestamp = timestamp; }
       
-      void probe(const Value* value) {
+      void probe(const Value* value, const std::string& name) {
         if (_header_written) {
           throw_error(Error, "Unable to add probe after writing to VCD file");
         }
         _ids.insert({value, _ids.size()});
-      }
-      
-      void probe(const Value* value, const std::string& name) {
-        probe(value);
-        _name_overrides.insert({value, name});
+        _probes.emplace_back(name, value);
       }
       
       void write_header() {
         _stream << "$timescale " << _timescale << " $end" << std::endl;
         _stream << "$scope module " << _module.name() << " $end" << std::endl;
-        for (const auto& [value, id] : _ids) {
-          const Reg* reg = dynamic_cast<const Reg*>(value);
+        for (const Probe& probe : _probes) {
+          const Reg* reg = dynamic_cast<const Reg*>(probe.value);
           
-          _stream << "$var " << (reg ? "reg" : "wire") << " " << value->width << " ";
-          print_id(id);
-          _stream << " " << name(value) << " $end" << std::endl;
+          _stream << "$var " << (reg ? "reg" : "wire") << " " << probe.value->width << " ";
+          print_id(_ids.at(probe.value));
+          _stream << " " << escape_name(probe.name) << " $end" << std::endl;
         }
         _stream << "$upscope $end" << std::endl;
         _stream << "$enddefinitions $end" << std::endl;

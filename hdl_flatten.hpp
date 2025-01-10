@@ -267,8 +267,6 @@ namespace hdl {
             break;
             case Op::Kind::LtU: bits = {lt_u(arg(0), arg(1))}; break;
             case Op::Kind::LtS: bits = {lt_s(arg(0), arg(1))}; break;
-            case Op::Kind::LeU: bits = {_module.op(Op::Kind::Not, {lt_u(arg(1), arg(0))})}; break;
-            case Op::Kind::LeS: bits = {_module.op(Op::Kind::Not, {lt_s(arg(1), arg(0))})}; break;
             case Op::Kind::Concat:
               bits.insert(bits.end(), arg(1).begin(), arg(1).end());
               bits.insert(bits.end(), arg(0).begin(), arg(0).end());

@@ -160,19 +160,6 @@ void test_ops() {
     assert(module.op(hdl::Op::Kind::LtS, {a, a}) == bool_false);
   });
   
-  Test("Op::Kind::LeU").run([&](){
-    assert(module.op(hdl::Op::Kind::LeU, {a, b})->width == 1);
-    
-    assert(module.op(hdl::Op::Kind::LeU, {a, a}) == bool_true);
-    assert(module.op(hdl::Op::Kind::LeU, {zero, a}) == bool_true);
-  });
-  
-  Test("Op::Kind::LeS").run([&](){
-    assert(module.op(hdl::Op::Kind::LeS, {a, b})->width == 1);
-    
-    assert(module.op(hdl::Op::Kind::LeS, {a, a}) == bool_true);
-  });
-  
   Test("Op::Kind::Concat").run([&](){
     assert(module.op(hdl::Op::Kind::Concat, {a, b})->width == 64);
   });

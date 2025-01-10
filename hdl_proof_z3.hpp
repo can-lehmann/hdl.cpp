@@ -137,8 +137,6 @@ namespace hdl {
               case Op::Kind::Eq: expr = bool2bv(arg(0) == arg(1)); break;
               case Op::Kind::LtU: expr = bool2bv(::z3::ult(arg(0), arg(1))); break;
               case Op::Kind::LtS: expr = bool2bv(::z3::slt(arg(0), arg(1))); break;
-              case Op::Kind::LeU: expr = bool2bv(::z3::ule(arg(0), arg(1))); break;
-              case Op::Kind::LeS: expr = bool2bv(::z3::sle(arg(0), arg(1))); break;
               case Op::Kind::Concat: expr = ::z3::concat(arg(0), arg(1)); break;
               case Op::Kind::Slice: {
                 size_t width = dynamic_cast<const Constant*>(op->args[2])->value.as_uint64();

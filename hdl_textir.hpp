@@ -152,14 +152,14 @@ namespace hdl {
         Module module("top");
         Reader reader(module);
         reader.read(stream);
-        return std::move(module);
+        return module;
       }
       
       static Module load_module(const char* path) {
         Module module("top");
         Reader reader(module);
         reader.load(path);
-        return std::move(module);
+        return module;
       }
       
       void read(std::istream& stream) const {

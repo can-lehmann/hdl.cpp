@@ -382,11 +382,15 @@ namespace hdl {
         } else if (cell->type == ID($lt)) {
           y = context.module.op(a_signed && b_signed ? Op::Kind::LtS : Op::Kind::LtU, { a, b });
         } else if (cell->type == ID($le)) {
-          y = context.module.op(a_signed && b_signed ? Op::Kind::LeS : Op::Kind::LeU, { a, b });
+          y = context.module.op(Op::Kind::Not, {
+            context.module.op(a_signed && b_signed ? Op::Kind::LtS : Op::Kind::LtU, { b, a })
+          });
         } else if (cell->type == ID($gt)) {
           y = context.module.op(a_signed && b_signed ? Op::Kind::LtS : Op::Kind::LtU, { b, a });
         } else if (cell->type == ID($ge)) {
-          y = context.module.op(a_signed && b_signed ? Op::Kind::LeS : Op::Kind::LeU, { b, a });
+          y = context.module.op(Op::Kind::Not, {
+            context.module.op(a_signed && b_signed ? Op::Kind::LtS : Op::Kind::LtU, { a, b })
+          });
         } else if (cell->type == ID($add)) {
           y = context.module.op(Op::Kind::Add, { a, b });
         } else if (cell->type == ID($sub)) {
@@ -953,8 +957,6 @@ namespace hdl {
             case Op::Kind::Eq: _ys_module->addEq(NEW_ID, arg(0), arg(1), wire); break;
             case Op::Kind::LtU: _ys_module->addLt(NEW_ID, arg(0), arg(1), wire, false); break;
             case Op::Kind::LtS: _ys_module->addLt(NEW_ID, arg(0), arg(1), wire, true); break;
-            case Op::Kind::LeU: _ys_module->addLe(NEW_ID, arg(0), arg(1), wire, false); break;
-            case Op::Kind::LeS: _ys_module->addLe(NEW_ID, arg(0), arg(1), wire, true); break;
             case Op::Kind::Concat: _ys_module->connect(wire, {arg(0), arg(1)}); break;
             case Op::Kind::Slice: {
               RTLIL::SigSpec spec = _ys_module->Shr(NEW_ID, arg(0), arg(1));
