@@ -240,22 +240,26 @@ namespace hdl {
       
       #undef binop
       
-      #define cmp(op_name, kind, invert) \
+      #define cmp(op_name, kind, invert, swap_args) \
         Bool operator op_name(const U<Width>& other) const { \
           Val<Width>::expect_same_module(other); \
-          Value* result = module().op(Op::Kind::kind, {value(), other.value()}); \
+          std::vector<Value*> args = {value(), other.value()}; \
+          if (swap_args) { \
+            std::swap(args[0], args[1]); \
+          } \
+          Value* result = module().op(Op::Kind::kind, args); \
           if (invert) { \
             result = module().op(Op::Kind::Not, {result}); \
           } \
           return Bool(module(), result); \
         }
       
-      cmp(==, Eq, false)
-      cmp(!=, Eq, true)
-      cmp(<, LtU, false)
-      cmp(>=, LtU, true)
-      cmp(<=, LeU, false)
-      cmp(>, LeU, true)
+      cmp(==, Eq, false, false)
+      cmp(!=, Eq, true, false)
+      cmp(<, LtU, false, false)
+      cmp(>, LtU, false, true)
+      cmp(>=, LtU, true, false)
+      cmp(<=, LtU, true, true)
       
       #undef cmp
     };
