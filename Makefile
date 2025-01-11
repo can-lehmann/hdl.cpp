@@ -1,6 +1,6 @@
 CC_OPTS := -Wall
 
-all: tests/test_hdl tests/test_bitstring tests/test_textir examples/hdl examples/hdl_bitstring examples/hdl_dsl examples/hdl_proof examples/hdl_proof_z3 tools/hdl.so
+all: tests/test_hdl tests/test_bitstring tests/test_textir examples/hdl examples/hdl_bitstring examples/hdl_dsl examples/hdl_proof examples/hdl_proof_z3 examples/hdl_known_bits tools/hdl.so
 
 test: tests/test_hdl tests/test_bitstring tests/test_textir tests/test_flatten tests/test_analysis
 	./tests/test_bitstring
@@ -41,5 +41,8 @@ examples/hdl_proof: examples/hdl_proof.cpp hdl.hpp hdl_bitstring.hpp hdl_proof.h
 
 examples/hdl_proof_z3: examples/hdl_proof_z3.cpp hdl.hpp hdl_bitstring.hpp hdl_proof_z3.hpp
 	clang++ ${CC_OPTS} -I/usr/include/z3 -lz3 examples/hdl_proof_z3.cpp -o examples/hdl_proof_z3
+
+examples/hdl_known_bits: examples/hdl_known_bits.cpp hdl.hpp hdl_bitstring.hpp hdl_known_bits.hpp
+	clang++ ${CC_OPTS} examples/hdl_known_bits.cpp -o examples/hdl_known_bits
 
 

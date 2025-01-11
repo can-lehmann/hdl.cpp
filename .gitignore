@@ -1,12 +1,13 @@
 examples/hdl_bitstring
 examples/hdl
 examples/test.v
-examples/graph.gv
-examples/graph.svg
+examples/*.gv
+examples/*.svg
 examples/proof.cnf
 examples/hdl_proof
 examples/hdl_dsl
 examples/hdl_proof_z3
+examples/hdl_known_bits
 tests/test_hdl
 tests/test_bitstring
 tests/test_textir
