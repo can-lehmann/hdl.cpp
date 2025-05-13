@@ -732,7 +732,9 @@ namespace hdl {
             size_t offset = dynamic_cast<Constant*>(args[1])->value.as_uint64();
             size_t width = dynamic_cast<Constant*>(args[2])->value.as_uint64();
             
-            if (Op* op = dynamic_cast<Op*>(args[0])) {
+            if (offset == 0 && width == args[0]->width) {
+              return args[0];
+            } else if (Op* op = dynamic_cast<Op*>(args[0])) {
               switch (op->kind) {
                 case Op::Kind::Concat:
                   if (offset + width <= op->args[1]->width) {
