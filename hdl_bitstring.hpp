@@ -844,7 +844,7 @@ namespace hdl {
     
     PartialBitString operator<<(size_t shift) const {
       return PartialBitString(
-        _known << shift | (shift > 0 ? (~BitString(shift)).zero_extend(width()) : BitString(width())),
+        _known << shift | (shift > 0 ? (~BitString(std::min(shift, width()))).zero_extend(width()) : BitString(width())),
         _value << shift
       );
     }
