@@ -12,6 +12,9 @@ test: tests/test_hdl tests/test_bitstring tests/test_textir tests/test_flatten t
 tools/hdl.so: tools/yosys_plugin.cpp hdl.hpp hdl_bitstring.hpp hdl_textir.hpp hdl_yosys.hpp
 	cd tools; yosys-config --build hdl.so yosys_plugin.cpp
 
+tools/sim: tools/sim.cpp hdl.hpp hdl_bitstring.hpp hdl_textir.hpp
+	clang++ ${CC_OPTS} tools/sim.cpp -o tools/sim
+
 tests/test_hdl: tests/test_hdl.cpp hdl.hpp hdl_bitstring.hpp
 	clang++ ${CC_OPTS} tests/test_hdl.cpp -o tests/test_hdl
 

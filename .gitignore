@@ -20,4 +20,5 @@ tools/*.textir
 tools/*.svg
 tools/hdl.d
 tools/hdl.so
+tools/sim
 assets/
